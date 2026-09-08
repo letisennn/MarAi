@@ -480,6 +480,31 @@ def security_signal_history(sid: int) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=60)
+def has_attention() -> bool:
+    try:
+        return bool(scalar("SELECT count(*) FROM attention_daily") or 0)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+@st.cache_data(ttl=60)
+def security_attention(sid: int) -> pd.DataFrame:
+    """Vecko-serie per kanal (search 0–100, news/forum antal/vecka) för ett bolag."""
+    df = q(
+        "SELECT session_date, channel, value FROM attention_daily "
+        "WHERE security_id = ? ORDER BY session_date",
+        (sid,),
+    )
+    if df.empty:
+        return df
+    df["session_date"] = pd.to_datetime(df["session_date"])
+    wide = df.pivot_table(index="session_date", columns="channel", values="value", aggfunc="last")
+    return wide.rename(
+        columns={"search": "Sökintresse", "news": "Nyhetsrubriker/vecka", "forum": "Foruminlägg/vecka"}
+    ).reset_index()
+
+
+@st.cache_data(ttl=60)
 def security_corporate_actions(sid: int) -> pd.DataFrame:
     return q(
         "SELECT action_type, ex_date, ratio, cash_amount, currency, source "

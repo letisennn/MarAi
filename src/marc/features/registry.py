@@ -15,9 +15,9 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from marc.features import price, volatility, volume
+from marc.features import attention, price, volatility, volume
 
-FEATURE_SET_VERSION = "v0.1"
+FEATURE_SET_VERSION = "v0.2"
 
 # name -> callable(df) -> Series
 FEATURES: dict[str, object] = {
@@ -39,6 +39,13 @@ FEATURES: dict[str, object] = {
     "amihud_20d": lambda d: volume.amihud_illiquidity_20d(d["adj_close"], d["turnover_sek"]),
     "log_mktcap": lambda d: np.log(d["market_cap_sek"].where(d["market_cap_sek"] > 0)),
     "log_price_local": lambda d: price.log_price_local(d["close_local"]),
+    # attention (search / news / forum). NaN-serie om attention-kolumner saknas.
+    "search_level_z": attention.search_level_z,
+    "search_accel": attention.search_accel,
+    "search_abnormal": attention.search_abnormal,
+    "forum_buzz_z": attention.forum_buzz_z,
+    "forum_accel": attention.forum_accel,
+    "news_rate_z": attention.news_rate_z,
 }
 
 FEATURE_NAMES = list(FEATURES)

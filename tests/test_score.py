@@ -18,6 +18,8 @@ def _peers(n: int = 30) -> pd.DataFrame:
             "dist_52w_high": -np.abs(rng.normal(0.20, 0.12, n)),
             "rvol_5_60": np.abs(rng.normal(1.0, 0.4, n)) + 0.2,
             "vol_accel": rng.normal(0, 0.3, n),
+            "search_accel": rng.normal(0, 0.4, n),
+            "forum_accel": rng.normal(0, 0.4, n),
         }
     )
 
@@ -27,7 +29,7 @@ def test_score_in_range_and_has_components() -> None:
     b = assess(peers.iloc[10].to_dict(), peers, n_rules=1)
     assert 0.0 <= b.total <= 100.0
     assert {c.key for c in b.components} == {
-        "momentum", "narhet_arshogsta", "volymintresse", "monster",
+        "momentum", "narhet_arshogsta", "volymintresse", "sokintresse", "monster",
     }
     assert "ovaliderade" in b.note
 

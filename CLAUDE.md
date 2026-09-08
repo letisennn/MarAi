@@ -118,9 +118,11 @@ src/marc/
   ingestion/   per-källa-adaptrar -> immutabla rårader + vintage
   reference/   securities, ISIN-xref-historik, tidsvarierande universum, corp actions
   cleaning/    validering, FX till basvaluta, as-of justeringsfaktorer, delisting-stitching
-  features/    rena kausala feature-funktioner -> feature_panel (versionerat)
+  ingestion/attention.py  syntetisk search/news/forum -> attention_daily (riktiga adaptrar = stubbar)
+  features/    rena kausala feature-funktioner (pris/volym + attention) -> feature_panel (versionerat, v0.2)
   targets/     forward returns / events -> target_panel (framtida data by design; aldrig en feature)
-  signals/     regelbaserad signalgenerering -> signal_log (inga skattade vikter än)
+  signals/     regelbaserad signalgenerering -> signal_log (regler, inga skattade vikter)
+  score/       PRELIMINÄR composite-score (config/score.yml, handsatta vikter) -> ren funktion, appen renderar "ovaliderad"
   stats/       baslinjefrekvenser, univariata quintil-sorteringar, rank-IC, kontroll-lift, Fama-MacBeth, block-bootstrap → experiment_result
   panel.py     bygger observation + feature_panel + target_panel (veckovis)
   pipeline.py  end-to-end-orkestrering (marc pipeline)

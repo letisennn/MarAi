@@ -23,6 +23,23 @@ exchange calendars · a survivorship-complete universe list.
 | Exchange calendars | `exchange_calendars` (OSS) | Free | Nordic calendars w/ history | long | — | Apache-2.0 | v0.1 |
 | Corporate actions | Börsdata/EODHD + manual seed | mixed | — | — | ✓ | — | v0.1 (manual seed for ~40 known delisted names) |
 
+## Attention / news / forum — godkänt att börja bygga (Jonas 2026-09-08)
+
+Tidigarelagt från v0.2–0.4. **Syntetisk källa först** (`marc.ingestion.attention.
+SyntheticAttentionSource`, offline, deterministisk — INTE riktig data), som skriver
+`attention_daily` (kanaler: `search` / `news` / `forum`). Kausala features:
+`search_level_z`, `search_accel`, `search_abnormal`, `forum_buzz_z`, `forum_accel`,
+`news_rate_z` (feature-set `v0.2`). Riktiga adaptrar kopplas in som `--source`:
+
+| Kanal | Riktig källa (planerad) | Kostnad | ToS / begränsning | Status |
+|---|---|---|---|---|
+| search | `pytrends` (Google Trends) | Gratis | Ostabil normalisering, sampling, rate-limit; inofficiellt API | Stub (`ingestion/trends_source.py`) |
+| news | Google News RSS per bolagsnamn / GDELT 2.0 | Gratis | RSS: personligt bruk; GDELT: öppet, brusigt | Stub (`ingestion/news_source.py`) |
+| forum | Reddit officiella API (r/aktier m.fl.) | Gratis (begränsad) | Kräver app-credentials; Pushshift nedlagt → tunn historik; GDPR: hasha user-id | Stub (`ingestion/forum_source.py`) |
+
+Nordiska forum (Placera, Shareville, Di.se) — ToS varierar, scrapa inte där det är
+förbjudet (regel 11). Kollas per källa innan inkoppling.
+
 ## Later versions (summary)
 
 | Version | Category | Candidate sources | Notes |

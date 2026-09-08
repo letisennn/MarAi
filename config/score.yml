@@ -13,9 +13,10 @@
 score_version: prelim_v0.1
 
 weights:
-  momentum: 0.40          # ret_3m / ret_6m / ret_12m
-  narhet_arshogsta: 0.20  # dist_52w_high (närmare toppen = högre)
-  volymintresse: 0.25     # rvol_5_60 / vol_accel
+  momentum: 0.35          # ret_3m / ret_6m / ret_12m
+  narhet_arshogsta: 0.15  # dist_52w_high (närmare toppen = högre)
+  volymintresse: 0.20     # rvol_5_60 / vol_accel
+  sokintresse: 0.15       # search_accel / forum_accel (attention)
   monster: 0.15           # antal förregistrerade mönster som lyst de senaste veckorna
 
 # ordbandstext för totalpoängen

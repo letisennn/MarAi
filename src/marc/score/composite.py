@@ -86,15 +86,19 @@ def assess(feats: dict, peers: pd.DataFrame, n_rules: int) -> ScoreBreakdown:
     p_dist = _pct_rank(feats.get("dist_52w_high"), col("dist_52w_high"))
     p_rvol = _pct_rank(feats.get("rvol_5_60"), col("rvol_5_60"))
     p_vacc = _pct_rank(feats.get("vol_accel"), col("vol_accel"))
+    p_sacc = _pct_rank(feats.get("search_accel"), col("search_accel"))
+    p_facc = _pct_rank(feats.get("forum_accel"), col("forum_accel"))
 
     momentum = _mean([p_r3, p_r6, p_r12])
     narhet = p_dist
     volym = _mean([p_rvol, p_vacc])
+    sok = _mean([p_sacc, p_facc])
     monster = min(max(n_rules, 0), 3) / 3.0 * 100.0
 
     r3 = feats.get("ret_3m")
     dist = feats.get("dist_52w_high")
     rvol = feats.get("rvol_5_60")
+    sacc = feats.get("search_accel")
 
     comps = [
         Component(
@@ -109,10 +113,16 @@ def assess(feats: dict, peers: pd.DataFrame, n_rules: int) -> ScoreBreakdown:
              else "okänt läge"),
         ),
         Component(
-            "volymintresse", "Handel & intresse", volym if volym is not None else 50.0,
+            "volymintresse", "Handel", volym if volym is not None else 50.0,
             w["volymintresse"],
             (_volume_phrase(rvol) + f" — {_rank_word(volym)}" if rvol is not None
              else "okänd handel"),
+        ),
+        Component(
+            "sokintresse", "Sök- & forumintresse", sok if sok is not None else 50.0,
+            w.get("sokintresse", 0.0),
+            (_search_phrase(sacc) + f" — {_rank_word(sok)}" if sacc is not None
+             else "ingen attention-data"),
         ),
         Component(
             "monster", "Mönster", monster, w["monster"],
@@ -131,3 +141,11 @@ def _volume_phrase(rvol: float) -> str:
     if abs(d) < 0.10:
         return "handel på normal nivå"
     return f"{abs(d) * 100:.0f} % {'högre' if d > 0 else 'lägre'} handel än normalt"
+
+
+def _search_phrase(sacc: float) -> str:
+    if sacc >= 0.15:
+        return f"sökintresset ökar ({sacc:+.0%} mot för en månad sedan)"
+    if sacc <= -0.15:
+        return f"sökintresset minskar ({sacc:+.0%} mot för en månad sedan)"
+    return "sökintresset är oförändrat"

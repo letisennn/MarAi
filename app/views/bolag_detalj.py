@@ -16,10 +16,12 @@ from _data import (
     RULE_SV,
     feature_label,
     fmt_feature,
+    has_attention,
     interpret_feature,
     pct_vs_normal,
     rule_outcome_stats,
     screener,
+    security_attention,
     security_corporate_actions,
     security_feature_history,
     security_features_latest,
@@ -160,7 +162,7 @@ st.markdown(_summary())
 if assess.get("has_feats"):
     st.subheader("Varför den poängen?")
     st.caption(
-        "Poängen väger fyra saker. Varje del jämförs med de andra bolagen i "
+        "Poängen väger fem delar. Varje del jämförs med de andra bolagen i "
         "universumet just nu (0 = svagast, 100 = starkast). Vikterna är handsatta "
         "och ovaliderade."
     )
@@ -206,6 +208,53 @@ if feats:
         ctx = _own_ctx(key, feats[key]) if ctx_ok else ""
         tail = f"  —  *{ctx}*" if ctx else ""
         st.markdown(f"**{label}:** {fmt(feats[key])}{tail}")
+
+# --------------------------------------------------------------- uppmärksamhet
+if feats and has_attention():
+    st.subheader("Uppmärksamhet — sök, forum, nyheter")
+    at = security_attention(sid)
+    if not at.empty and "Sökintresse" in at.columns:
+        st.caption("Sökintresse över tid (0–100, ungefär som Google Trends)")
+        st.line_chart(at.set_index("session_date")[["Sökintresse"]], height=220)
+        counts = [c for c in ["Foruminlägg/vecka", "Nyhetsrubriker/vecka"] if c in at.columns]
+        if counts:
+            st.caption("Foruminlägg och nyhetsrubriker per vecka")
+            st.line_chart(at.set_index("session_date")[counts], height=180)
+
+    def _lvl(z) -> str:
+        if z is None:
+            return "okänt"
+        if z >= 1.5:
+            return "mycket högt för bolaget"
+        if z >= 0.5:
+            return "högre än normalt"
+        if z <= -0.5:
+            return "lägre än normalt"
+        return "på normal nivå"
+
+    def _dir(a) -> str:
+        if a is None:
+            return ""
+        if a >= 0.15:
+            return f", och har ökat senaste månaden ({a:+.0%})"
+        if a <= -0.15:
+            return f", och har minskat senaste månaden ({a:+.0%})"
+        return ", ungefär oförändrat senaste månaden"
+
+    slz, sacc = feats.get("search_level_z"), feats.get("search_accel")
+    fbz, facc = feats.get("forum_buzz_z"), feats.get("forum_accel")
+    nrz = feats.get("news_rate_z")
+    if slz is not None:
+        st.markdown(f"**Sökintresse just nu:** {_lvl(slz)}{_dir(sacc)}")
+    if fbz is not None:
+        st.markdown(f"**Forumaktivitet just nu:** {_lvl(fbz)}{_dir(facc)}")
+    if nrz is not None:
+        st.markdown(f"**Nyhetsflöde just nu:** {_lvl(nrz)}")
+    st.caption(
+        "Syntetisk attention-data — inte riktig Google Trends / forum ännu, och "
+        "**inte** konstruerad att leda kursen. Informationsvärdet mäts i E1 när "
+        "riktig data kopplats in."
+    )
 
 # --------------------------------------------------------------- mönster
 st.subheader("Förregistrerade mönster")

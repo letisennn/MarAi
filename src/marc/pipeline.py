@@ -12,6 +12,7 @@ from marc.cleaning import run_cleaning
 from marc.config import get_logger, get_settings, universe_config
 from marc.db import run_migrations
 from marc.db.session import session
+from marc.ingestion.attention import SyntheticAttentionSource, write_attention_batch
 from marc.ingestion.base import write_price_batch
 from marc.ingestion.synthetic_source import SyntheticPriceSource
 from marc.ingestion.yfinance_source import YFinancePriceSource
@@ -60,6 +61,12 @@ def run_all(source: str = "synthetic", reset: bool = False) -> dict:
         batch = src.fetch_prices(secs, ingest_start, ingest_end)
         ingest = write_price_batch(con, batch)
         clean = run_cleaning(con)
+
+        # attention (search / news / forum) — synthetic källa, offline. Riktiga
+        # adaptrar (Trends/nyheter/forum) kopplas in som --source senare.
+        attn_batch = SyntheticAttentionSource().fetch_attention(secs, ingest_start, ingest_end)
+        attn = write_attention_batch(con, attn_batch)
+
         n_intervals = build_universe(con)
         panel = build_panel(con)
         e1 = run_experiment_e1(con)
@@ -68,6 +75,7 @@ def run_all(source: str = "synthetic", reset: bool = False) -> dict:
     summary = {
         "source": source,
         "ingest": ingest,
+        "attention": attn,
         "cleaning": clean,
         "universe_intervals": n_intervals,
         "panel": panel,

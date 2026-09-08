@@ -44,7 +44,35 @@ def _security_frame(con: duckdb.DuckDBPyConnection, sid: int) -> pd.DataFrame:
         return df
     df["session_date"] = pd.to_datetime(df["session_date"])
     df = df.set_index("session_date")
-    return df.rename(columns={"adj_close_sek": "adj_close", "adj_high_sek": "adj_high", "adj_low_sek": "adj_low"})
+    df = df.rename(columns={"adj_close_sek": "adj_close", "adj_high_sek": "adj_high", "adj_low_sek": "adj_low"})
+    _attach_attention(con, sid, df)
+    return df
+
+
+def _attach_attention(con: duckdb.DuckDBPyConnection, sid: int, df: pd.DataFrame) -> None:
+    """Vecko-attention (search/news/forum) forward-fylld till dagsupplösning, lagd
+    en vecka bakåt för att garantera point-in-time (dag t ser veckan före t)."""
+    try:
+        attn = con.execute(
+            "SELECT session_date, channel, value FROM attention_daily WHERE security_id = ? "
+            "ORDER BY session_date",
+            [sid],
+        ).df()
+    except duckdb.CatalogException:
+        return
+    if attn.empty:
+        return
+    attn["session_date"] = pd.to_datetime(attn["session_date"])
+    wide = (
+        attn.pivot_table(index="session_date", columns="channel", values="value", aggfunc="last")
+        .sort_index()
+        .shift(1)  # point-in-time: veckan före
+        .rename(columns={"search": "attn_search", "news": "attn_news", "forum": "attn_forum"})
+    )
+    daily = wide.reindex(wide.index.union(df.index)).sort_index().ffill().reindex(df.index)
+    for c in ("attn_search", "attn_news", "attn_forum"):
+        if c in daily.columns:
+            df[c] = daily[c].to_numpy()
 
 
 def _delist_info(sec: pd.Series, frame: pd.DataFrame) -> DelistInfo | None:
