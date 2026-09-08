@@ -7,13 +7,31 @@ Ingen affärslogik här eller i sidorna — allt kommer från paketet ``marc`` v
 
 from __future__ import annotations
 
+import os
+
 import streamlit as st
 
 st.set_page_config(page_title="Marc AI", page_icon="📈", layout="wide")
 
 from _data import data_source, db_exists, last_signal_date, latest_obs_date  # noqa: E402
+from _gate import require_password  # noqa: E402
+
+require_password()
 
 if not db_exists():
+    if os.environ.get("MARC_AUTOBUILD"):
+        # hostad (t.ex. Streamlit Cloud): bygg databasen från seed-data vid första besöket
+        st.title("Marc AI")
+        with st.spinner("Bygger databasen (syntetisk data) — tar ~1 minut, engångsjobb…"):
+            import sys
+            from pathlib import Path
+
+            sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+            from marc.pipeline import run_all
+
+            run_all(source="synthetic", reset=False)
+        st.cache_data.clear()
+        st.rerun()
     st.title("Marc AI")
     st.warning("Databasen är inte byggd ännu. Kör det här i en terminal och ladda om sidan:")
     st.code("uv run marc pipeline --source synthetic --reset", language="bash")
