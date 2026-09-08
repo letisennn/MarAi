@@ -1,8 +1,9 @@
 """Enkel lösenordsspärr för appen när den exponeras utanför localhost.
 
-Aktiveras bara om miljövariabeln ``MARC_APP_PASSWORD`` är satt. Lokalt (utan den
-satt) händer ingenting. Inte riktig auth — bara ett delat lösenord så att en
-delad länk (tunnel etc.) inte ligger helt öppen.
+Aktiveras bara om ``MARC_APP_PASSWORD`` är satt — antingen som miljövariabel
+(lokalt) eller i Streamlit-appens *Secrets* (hostad). Utan den satt händer
+ingenting. Inte riktig auth — bara ett delat lösenord så att en delad länk inte
+ligger helt öppen.
 """
 
 from __future__ import annotations
@@ -13,8 +14,19 @@ import os
 import streamlit as st
 
 
+def _configured_password() -> str:
+    """Läs lösenordet från Streamlit-secrets om det finns där, annars miljön."""
+    try:
+        val = st.secrets.get("MARC_APP_PASSWORD")  # type: ignore[attr-defined]
+        if val:
+            return str(val)
+    except Exception:  # noqa: BLE001 - inga secrets konfigurerade => faller igenom
+        pass
+    return os.environ.get("MARC_APP_PASSWORD", "")
+
+
 def require_password() -> None:
-    secret = os.environ.get("MARC_APP_PASSWORD", "")
+    secret = _configured_password()
     if not secret:
         return
     if st.session_state.get("_auth_ok"):

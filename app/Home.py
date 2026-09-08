@@ -19,17 +19,30 @@ from _gate import require_password  # noqa: E402
 require_password()
 
 if not db_exists():
-    if os.environ.get("MARC_AUTOBUILD"):
-        # hostad (t.ex. Streamlit Cloud): bygg databasen från seed-data vid första besöket
+    # Ingen databasfil (t.ex. färsk deploy på Streamlit Cloud). Bygg den från
+    # seed-datan vid första besöket. Sätt MARC_AUTOBUILD="0" för att i stället
+    # bygga manuellt i en terminal.
+    if os.environ.get("MARC_AUTOBUILD", "1") != "0":
         st.title("Marc AI")
-        with st.spinner("Bygger databasen (syntetisk data) — tar ~1 minut, engångsjobb…"):
-            import sys
-            from pathlib import Path
+        try:
+            with st.spinner(
+                "Bygger databasen (syntetisk data) — tar ~1–2 minuter, engångsjobb…"
+            ):
+                import sys
+                from pathlib import Path
 
-            sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-            from marc.pipeline import run_all
+                sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+                from marc.pipeline import run_all
 
-            run_all(source="synthetic", reset=False)
+                run_all(source="synthetic", reset=False)
+        except Exception as exc:  # noqa: BLE001 - visa felet i stället för en tyst vägg
+            st.error(f"Bygget av databasen misslyckades: {exc}")
+            st.caption(
+                "Ladda om sidan för att försöka igen, eller bygg manuellt lokalt "
+                "med kommandot nedan."
+            )
+            st.code("uv run marc pipeline --source synthetic --reset", language="bash")
+            st.stop()
         st.cache_data.clear()
         st.rerun()
     st.title("Marc AI")
