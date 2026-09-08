@@ -1,0 +1,50 @@
+# Target construction parameters. Locked for experiment E1 (see
+# docs/experiments/E1.md). Changing any value here is a NEW target-set version
+# and must be recorded on the experiment row.
+
+target_set_version: v0.1
+
+# --- Base price P0 -----------------------------------------------------------
+# Denominator for forward returns and event thresholds. Trailing mean of the
+# ADJUSTED close so a single anomalously low print at t cannot make a +X%
+# threshold artificially easy to reach (Jonas, 2026-09-08).
+base_price:
+  method: trailing_mean_adjusted_close
+  window_trading_days: 5            # LOCKED. 10d is reported as a robustness check.
+  sessions: "[t-4, t] inclusive"
+
+# --- Horizons --------------------------------------------------------------
+horizons_trading_days: [5, 20, 30, 60, 90, 180]
+
+# --- Forward point return -------------------------------------------------
+# fwd_ret_h = adjusted_close(t+h) / P0 - 1     (point-to-point, LOCKED headline)
+# fwd_ret_h_sm = trailing_mean_adjusted_close([t+h-4, t+h]) / P0 - 1   (robustness)
+
+# --- Large-move events ---------------------------------------------------
+# event = 1 iff  max{ adjusted_high(d) : d in (t, t+H],  turnover_gate(d) passes }  >=  threshold * P0
+events:
+  - { name: up_10_5d,    threshold: 1.10, horizon_trading_days: 5 }
+  - { name: up_25_20d,   threshold: 1.25, horizon_trading_days: 20 }
+  - { name: up_50_30d,   threshold: 1.50, horizon_trading_days: 30 }
+  - { name: up_50_60d,   threshold: 1.50, horizon_trading_days: 60 }
+  - { name: up_50_90d,   threshold: 1.50, horizon_trading_days: 90 }
+  - { name: up_100_180d, threshold: 2.00, horizon_trading_days: 180 }
+
+# --- Turnover gate -----------------------------------------------------
+# A day counts toward an event / max-return / drawdown / time-to-peak ONLY if its
+# SEK turnover clears the gate, so single thin trades that print an extreme high
+# or low are ignored (Jonas, 2026-09-08).
+turnover_gate_sek:
+  absolute_min: 250_000
+  relative_min_fraction_of_median_60d: 0.5
+  combine: max          # gate(d) = max(absolute_min, 0.5 * trailing_60d_median_turnover(d))
+
+# --- Path metrics (all gated by the turnover gate above) --------------
+path_metrics: [fwd_max_return, fwd_max_drawdown, days_to_peak, sustained]
+sustained_rule: "fwd_ret_h >= 0.5 * fwd_max_ret_h"
+
+# --- Delisting inside a window (see docs/methodology.md 2.3) ----------
+delisting:
+  bankruptcy_liquidation: terminal_return_-1.0      # -100% at delisting date; path ends
+  acquisition_merger: terminal_offer_price          # final price = offer/cash price (NOT last traded)
+  suspension: carry_last_price_flag_stale           # no new highs/lows while suspended

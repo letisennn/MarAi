@@ -1,0 +1,14 @@
+# structlog / stdlib logging configuration. Loaded by marc.config.
+version: 1
+disable_existing_loggers: false
+formatters:
+  plain:
+    format: "%(asctime)s %(levelname)-7s %(name)s | %(message)s"
+handlers:
+  console:
+    class: logging.StreamHandler
+    formatter: plain
+    stream: ext://sys.stdout
+root:
+  level: INFO
+  handlers: [console]

@@ -1,0 +1,66 @@
+# Nordic small-cap universe definition. Reviewed by Jonas 2026-09-08.
+# Membership is recomputed month-end and stored as-of in `universe_membership`.
+# A name can enter and leave over time. Names that fail criteria stay in the DB,
+# flagged out-of-universe (never deleted).
+
+universe_name: nordic_smallcap_v1
+base_currency: SEK
+
+# Exclude no venue in advance. First North, Spotlight and NGM are all in.
+exchanges:
+  SE:
+    - { mic: XSTO, segment: main,            name: "Nasdaq Stockholm" }
+    - { mic: FNSE, segment: first_north,     name: "Nasdaq First North Growth Market SE" }
+    - { mic: XSAT, segment: spotlight,       name: "Spotlight Stock Market" }
+    - { mic: XNGM, segment: ngm,             name: "NGM Main Regulated / Nordic SME" }
+  NO:
+    - { mic: XOSL, segment: main,            name: "Oslo Bors" }
+    - { mic: XOAS, segment: euronext_expand, name: "Euronext Expand Oslo" }
+    - { mic: MERK, segment: euronext_growth, name: "Euronext Growth Oslo" }
+  DK:
+    - { mic: XCSE, segment: main,            name: "Nasdaq Copenhagen" }
+    - { mic: FNDK, segment: first_north,     name: "Nasdaq First North Growth Market DK" }
+  FI:
+    - { mic: XHEL, segment: main,            name: "Nasdaq Helsinki" }
+    - { mic: FNFI, segment: first_north,     name: "Nasdaq First North Growth Market FI" }
+
+# Point-in-time market cap for ADMISSION into the universe, in base_currency (SEK).
+# Ceiling = Nasdaq Nordic "Small Cap" boundary (< EUR 150m ~ SEK 1.7bn). A name
+# first seen above the ceiling is a genuine mid/large cap and is NOT admitted.
+market_cap_sek:
+  min: 50_000_000
+  max: 1_700_000_000          # ~ EUR 150m, Nasdaq Small Cap ceiling
+
+# Cap segment is tagged PER OBSERVATION (`observation.cap_segment_at_entry`) from
+# the point-in-time market cap on that observation's date:
+#   market_cap_sek <= small_max  -> "small"
+#   market_cap_sek >  small_max  -> "mid"
+# A name admitted as "small" that later grows past the ceiling is RETAINED and
+# its later observations are tagged "mid". This lets us study companies growing
+# out of small-cap without contaminating the main analysis, which filters to
+# cap_segment_at_entry = 'small'.
+cap_segments:
+  small_max_market_cap_sek: 1_700_000_000
+  retain_after_growth: true
+  graduate_after_months_mid: null      # null = track indefinitely, just tag
+
+# 60-trading-day median daily turnover, in base_currency. Below this: kept in DB,
+# flagged out-of-universe.
+liquidity_floor_sek_median_turnover_60d: 250_000
+
+# Last close in local currency. Below this: flagged.
+price_floor_local: 1.0
+
+# One row per company: key on ISIN, keep primary listing, drop secondary
+# listings and most A/B duplicate share classes (keep the most liquid class).
+dedup:
+  key: isin
+  keep: most_liquid_share_class
+
+# Minimum prior trading history before a name becomes an observation.
+min_history_trading_days: 252
+
+# Study window for experiment E1.
+study_start: 2020-01-01
+study_end: 2026-06-30
+observation_frequency: weekly           # Friday close

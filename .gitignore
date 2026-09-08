@@ -1,0 +1,35 @@
+# Data (DuckDB file + raw/interim/analytical stores) — never commit contents,
+# but keep the folder skeleton + READMEs so the layout is visible.
+/data/**
+!/data/
+!/data/README.md
+!/data/*/
+!/data/**/.gitkeep
+# Seed data is source — a fresh clone must be able to run the pipeline.
+!/data/seed/
+!/data/seed/**
+*.duckdb
+*.duckdb.wal
+*.parquet
+
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.uv/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

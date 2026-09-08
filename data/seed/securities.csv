@@ -1,0 +1,53 @@
+isin,name,country,currency,mic,market_segment,yahoo,sector,shares_out_millions,list_date,status,status_date,status_detail
+SE0SYN000001,Sinch,SE,SEK,XSTO,main,SINCH.ST,Communications,84,2018-01-02,listed,,
+SE0SYN000002,Paradox Interactive,SE,SEK,FNSE,first_north,PDX.ST,Gaming,106,2018-01-02,listed,,
+SE0SYN000003,BICO Group,SE,SEK,XSTO,main,BICO.ST,Biotech Tools,66,2019-11-01,listed,,
+SE0SYN000004,Cint Group,SE,SEK,XSTO,main,CINT.ST,Software,19,2021-02-19,listed,,
+SE0SYN000005,Embracer Group,SE,SEK,FNSE,first_north,EMBRAC-B.ST,Gaming,140,2018-01-02,listed,,
+SE0SYN000006,Sdiptech,SE,SEK,XSTO,main,SDIP-B.ST,Industrial Tech,37,2018-01-02,listed,,
+SE0SYN000007,Lifco,SE,SEK,XSTO,main,LIFCO-B.ST,Industrial,45,2018-01-02,listed,,
+SE0SYN000008,Vitrolife,SE,SEK,XSTO,main,VITR.ST,Medtech,22,2018-01-02,listed,,
+SE0SYN000009,MIPS,SE,SEK,XSTO,main,MIPS.ST,Safety Equipment,26,2018-01-02,listed,,
+SE0SYN000010,Fortnox,SE,SEK,FNSE,first_north,FNOX.ST,Software,61,2018-01-02,listed,,
+SE0SYN000011,Stillfront Group,SE,SEK,XSTO,main,SF.ST,Gaming,50,2018-01-02,listed,,
+SE0SYN000012,Nibe Industrier,SE,SEK,XSTO,main,NIBE-B.ST,Climate Solutions,150,2018-01-02,listed,,
+SE0SYN000013,Beijer Ref,SE,SEK,XSTO,main,BEIJ-B.ST,HVAC/R,127,2018-01-02,listed,,
+SE0SYN000014,Hexatronic Group,SE,SEK,XSTO,main,HTRO.ST,Fiber Optics,38,2018-01-02,listed,,
+SE0SYN000015,CTEK,SE,SEK,XSTO,main,CTEK.ST,EV Charging,25,2021-09-16,listed,,
+SE0SYN000016,Bonesupport Holding,SE,SEK,XSTO,main,BONEX.ST,Medtech,20,2018-01-02,listed,,
+SE0SYN000017,Surgical Science,SE,SEK,FNSE,first_north,SUS.ST,Medtech,51,2018-01-02,listed,,
+SE0SYN000018,Tobii,SE,SEK,XSTO,main,TOBII.ST,Eye Tracking,35,2018-01-02,listed,,
+SE0SYN000019,Boozt,SE,SEK,XSTO,main,BOOZT.ST,E-commerce,64,2018-01-02,listed,,
+SE0SYN000020,Byggmax Group,SE,SEK,XSTO,main,BMAX.ST,Retail,61,2018-01-02,listed,,
+SE0SYN000021,Nolato,SE,SEK,XSTO,main,NOLA-B.ST,Polymer,26,2018-01-02,listed,,
+SE0SYN000022,Karnov Group,SE,SEK,XSTO,main,KAR.ST,Information Services,30,2019-04-04,listed,,
+SE0SYN000023,Alligo,SE,SEK,XSTO,main,ALLIGO-B.ST,Distribution,41,2018-01-02,listed,,
+SE0SYN000024,Systemair,SE,SEK,XSTO,main,SYSR.ST,Ventilation,52,2018-01-02,listed,,
+SE0SYN000025,Nordic Waterproofing,SE,SEK,XSTO,main,NWG.ST,Building Materials,24,2018-01-02,listed,,
+NO0SYN000026,Nordic Semiconductor,NO,NOK,XOSL,main,NOD.OL,Semiconductors,190,2018-01-02,listed,,
+NO0SYN000027,Borregaard,NO,NOK,XOSL,main,BRG.OL,Biochemicals,100,2018-01-02,listed,,
+NO0SYN000028,Elkem,NO,NOK,XOSL,main,ELK.OL,Silicones,63,2018-03-22,listed,,
+NO0SYN000029,Nel,NO,NOK,XOSL,main,NEL.OL,Hydrogen,150,2018-01-02,listed,,
+NO0SYN000030,Scatec,NO,NOK,XOSL,main,SCATC.OL,Solar Power,158,2018-01-02,listed,,
+NO0SYN000031,Kongsberg Automotive,NO,NOK,XOSL,main,KOA.OL,Automotive,470,2018-01-02,listed,,
+DK0SYN000032,Netcompany Group,DK,DKK,XCSE,main,NETC.CO,IT Services,50,2018-06-07,listed,,
+DK0SYN000033,NKT,DK,DKK,XCSE,main,NKT.CO,Power Cables,43,2018-01-02,listed,,
+DK0SYN000034,Ambu,DK,DKK,XCSE,main,AMBU-B.CO,Medtech,270,2018-01-02,listed,,
+DK0SYN000035,Zealand Pharma,DK,DKK,XCSE,main,ZEAL.CO,Biotech,46,2018-01-02,listed,,
+DK0SYN000036,Matas,DK,DKK,XCSE,main,MATAS.CO,Retail,38,2018-01-02,listed,,
+FI0SYN000037,Harvia,FI,EUR,XHEL,main,HARVIA.HE,Consumer Products,19,2018-03-22,listed,,
+FI0SYN000038,Revenio Group,FI,EUR,XHEL,main,REG1V.HE,Medtech,26,2018-01-02,listed,,
+FI0SYN000039,Qt Group,FI,EUR,XHEL,main,QTCOM.HE,Software,25,2018-01-02,listed,,
+FI0SYN000040,Musti Group,FI,EUR,XHEL,main,MUSTI.HE,Pet Retail,34,2020-02-13,listed,,
+FI0SYN000041,Kamux,FI,EUR,XHEL,main,KAMUX.HE,Car Retail,40,2018-01-02,listed,,
+SE0SYN000042,Recipharm,SE,SEK,XSTO,main,RECI-B.ST,Pharma CDMO,68,2018-01-02,acquired,2021-04-27,0.32
+SE0SYN000043,Cherry,SE,SEK,XSTO,main,,Gaming,105,2018-01-02,acquired,2019-01-25,0.25
+SE0SYN000044,Ahlsell,SE,SEK,XSTO,main,,Distribution,437,2018-01-02,acquired,2019-02-08,0.20
+SE0SYN000045,Oriflame Holding,SE,SEK,XSTO,main,,Cosmetics,55,2018-01-02,acquired,2019-08-19,0.28
+SE0SYN000046,Nuevolution,SE,SEK,FNSE,first_north,,Biotech,29,2018-01-02,acquired,2019-07-25,0.40
+SE0SYN000047,Oscar Properties Holding,SE,SEK,XSTO,main,,Real Estate,45,2018-01-02,bankrupt,2023-09-15,
+SE0SYN000048,Eniro,SE,SEK,XSTO,main,,Directories,140,2018-01-02,bankrupt,2023-06-30,
+SE0SYN000049,Hancap,SE,SEK,FNSE,first_north,,Building Products,80,2018-01-02,bankrupt,2019-08-19,
+NO0SYN000050,Kahoot,NO,NOK,MERK,euronext_growth,,EdTech,480,2019-10-25,acquired,2023-08-25,0.30
+DK0SYN000051,SimCorp,DK,DKK,XCSE,main,,Software,40,2018-01-02,acquired,2023-11-15,0.35
+SE0SYN000052,Pledpharma,SE,SEK,XSTO,main,,Biotech,45,2018-01-02,delisted,2020-02-24,renamed Egetis Therapeutics (ticker change)

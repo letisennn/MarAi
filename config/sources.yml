@@ -1,0 +1,46 @@
+# Data source registry. `enabled: false` means "do not call". Paid sources stay
+# disabled until signed off (see CLAUDE.md rule 3 and docs/data_sources.md).
+
+sources:
+  yfinance:
+    kind: price_ohlcv
+    cost: free
+    enabled: true
+    notes: "Pipeline bring-up only. Survivorship-biased: delisted tickers vanish."
+    history_from: 2018-01-01
+
+  stooq:
+    kind: price_ohlcv
+    cost: free
+    enabled: true
+    notes: "Cross-check source for yfinance."
+
+  openfigi:
+    kind: symbology
+    cost: free
+    enabled: true
+    notes: "ISIN <-> ticker <-> FIGI mapping. Rate-limited; API key raises limits."
+
+  riksbank_fx:
+    kind: fx
+    cost: free
+    enabled: true
+    notes: "SEK cross rates. ECB SDW as fallback."
+
+  exchange_calendars:
+    kind: calendar
+    cost: free
+    enabled: true
+    notes: "OSS library; Nordic calendars with history."
+
+  borsdata:
+    kind: price_ohlcv_fundamentals
+    cost: paid
+    enabled: false
+    notes: "Best Nordic small-cap coverage incl. delisted. ~200 SEK/mo + API add-on. DO NOT ENABLE without sign-off."
+
+  eodhd:
+    kind: price_ohlcv_corpactions
+    cost: paid
+    enabled: false
+    notes: "Broad, delisted endpoint, splits/divs. ~$20-80/mo. DO NOT ENABLE without sign-off."
