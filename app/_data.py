@@ -21,6 +21,26 @@ if str(_ROOT / "src") not in sys.path:
 from marc.config import get_settings, universe_config  # noqa: E402
 from marc.score import assess as _assess  # noqa: E402
 
+# Mörkt tema för alla Plotly-diagram (Streamlit-temat sätts i .streamlit/config.toml).
+# Genomskinlig bakgrund så figurerna smälter in i appens ytor.
+try:  # pragma: no cover - ren presentationsinställning
+    import plotly.graph_objects as _go
+    import plotly.io as _pio
+
+    _pio.templates["marc_dark"] = _go.layout.Template(
+        layout=dict(
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="#e6e6e6"),
+            xaxis=dict(gridcolor="rgba(255,255,255,0.08)", zerolinecolor="rgba(255,255,255,0.16)"),
+            yaxis=dict(gridcolor="rgba(255,255,255,0.08)", zerolinecolor="rgba(255,255,255,0.16)"),
+            legend=dict(bgcolor="rgba(0,0,0,0)"),
+        )
+    )
+    _pio.templates.default = "plotly_dark+marc_dark"
+except Exception:  # noqa: BLE001
+    pass
+
 # --------------------------------------------------------------------------- #
 # klarspråk
 # --------------------------------------------------------------------------- #
