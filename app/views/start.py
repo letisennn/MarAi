@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from _data import base_rates, data_source, kpis, pipeline_status
+from _data import EVENT_CODE_SV, base_rates, data_source, kpis, pipeline_status
 
 st.title("Marc AI")
 
@@ -93,12 +93,13 @@ with st.expander("Hur ofta sker en stor uppgång överhuvudtaget? (basnivåer)")
     if br.empty:
         st.write("Kör `uv run marc stats` för att fylla i forskningsresultaten.")
     else:
-        piv = br.pivot(index="event", columns="segment", values="rate")
-        st.bar_chart(piv)
+        br = br.copy()
+        br["Uppgång"] = br["event"].map(EVENT_CODE_SV).fillna(br["event"])
+        piv = br.pivot(index="Uppgång", columns="segment", values="rate")
+        st.bar_chart(piv, y_label="andel av veckorna")
         st.dataframe(
-            br.rename(
+            br[["Uppgång", "segment", "rate", "ci_low", "ci_high", "n_obs", "n_events"]].rename(
                 columns={
-                    "event": "Uppgång",
                     "segment": "Segment",
                     "rate": "Andel",
                     "ci_low": "KI låg",

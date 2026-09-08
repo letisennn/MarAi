@@ -24,6 +24,50 @@ from marc.config import get_settings, universe_config  # noqa: E402
 # klarspråk
 # --------------------------------------------------------------------------- #
 
+COUNTRY_SV = {"SE": "Sverige", "NO": "Norge", "DK": "Danmark", "FI": "Finland"}
+
+# horisont -> vilket "stor uppgång"-event E1d-reglerna utvärderar
+HORIZON_EVENT = {
+    "5d": "up_10_5d",
+    "20d": "up_25_20d",
+    "30d": "up_50_30d",
+    "60d": "up_50_60d",
+    "90d": "up_50_90d",
+    "180d": "up_100_180d",
+}
+
+# klarspråk per event-kod (som de lagras i experiment_result)
+EVENT_CODE_SV = {
+    "up_10_5d": "minst +10 % inom en vecka",
+    "up_25_20d": "minst +25 % inom en månad",
+    "up_50_30d": "minst +50 % inom sex veckor",
+    "up_50_60d": "minst +50 % inom tre månader",
+    "up_50_90d": "minst +50 % inom ~fyra månader",
+    "up_100_180d": "minst +100 % inom ~nio månader",
+}
+
+# klarspråk för varje horisont
+EVENT_SV = {
+    "5d": "minst +10 % inom en vecka",
+    "20d": "minst +25 % inom en månad",
+    "30d": "minst +50 % inom sex veckor",
+    "60d": "minst +50 % inom tre månader",
+    "90d": "minst +50 % inom ~fyra månader",
+    "180d": "minst +100 % inom ~nio månader",
+}
+
+# kort etikett för diagramaxlar
+EVENT_SHORT = {
+    "5d": "+10 %<br>1 vecka",
+    "20d": "+25 %<br>1 månad",
+    "30d": "+50 %<br>6 veckor",
+    "60d": "+50 %<br>3 mån",
+    "90d": "+50 %<br>~4 mån",
+    "180d": "+100 %<br>~9 mån",
+}
+
+_HZ_ORDER = {"5d": 0, "20d": 1, "30d": 2, "60d": 3, "90d": 4, "180d": 5}
+
 STATUS_SV = {
     "listed": "Aktiv",
     "acquired": "Uppköpt",
@@ -533,6 +577,42 @@ def base_rates() -> pd.DataFrame:
         ORDER BY event, segment
         """
     )
+
+
+@st.cache_data(ttl=60)
+def base_rate_map() -> dict:
+    """{horisont: basnivå} för small-segmentet — hur ofta uppgången sker normalt."""
+    br = base_rates()
+    small = br[br["segment"] == "small"]
+    ev2rate = dict(zip(small["event"], small["rate"], strict=False))
+    return {hz: ev2rate.get(ev) for hz, ev in HORIZON_EVENT.items()}
+
+
+@st.cache_data(ttl=60)
+def rule_outcome_stats() -> pd.DataFrame:
+    """Per regel × horisont: hur ofta en stor uppgång följde historiskt, och hur
+    stora rörelserna blev — jämfört med basnivån. Beskrivande historik, ingen prognos.
+    """
+    df = q(
+        """
+        SELECT split_part(sl.rule_version, ':', -1) AS rule,
+               so.horizon                           AS horizon,
+               count(*)                             AS n,
+               avg(CASE WHEN so.realized_event THEN 1.0 ELSE 0.0 END) AS hit_rate,
+               median(so.realized_max_return)       AS med_max_ret,
+               median(so.realized_max_dd)           AS med_max_dd,
+               median(so.realized_return)           AS med_ret
+        FROM signal_outcome so JOIN signal_log sl USING (signal_id)
+        GROUP BY 1, 2
+        """
+    )
+    if df.empty:
+        return df
+    brm = base_rate_map()
+    df["base_rate"] = df["horizon"].map(brm)
+    df["lift"] = df["hit_rate"] / df["base_rate"]
+    df["ord"] = df["horizon"].map(_HZ_ORDER)
+    return df.sort_values(["rule", "ord"]).reset_index(drop=True)
 
 
 @st.cache_data(ttl=60)

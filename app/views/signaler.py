@@ -1,37 +1,35 @@
-"""Signaler — förregistrerade mönster som lyst, och hur det gått historiskt."""
+"""Signaler — vilka bolag matchar ett förregistrerat mönster, och vad historiken visar."""
 
 from __future__ import annotations
-
-import json
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
 from _data import (
+    EVENT_SHORT,
     RULE_SV,
     active_signals,
-    fwd90_box,
     is_synthetic,
     last_signal_date,
     latest_obs_date,
     recent_signal_log,
-    signal_outcomes,
+    rule_outcome_stats,
 )
 
 st.title("Signaler")
 
 st.markdown(
     "En **signal** = ett bolag matchar ett av tre **förregistrerade mönster**. "
-    "Inga skattade vikter, ingen score — villkoren är bestämda i förväg i "
-    "`docs/experiments/E1.md`. Att en regel lyser säger *ingenting* om vad som "
-    "kommer hända; det är ett mönster vars informationsvärde ska testas."
+    "Inga skattade vikter, ingen poäng — villkoren är bestämda i förväg. Att en "
+    "regel lyser säger *ingenting säkert* om vad som kommer hända; det är ett "
+    "mönster vars informationsvärde ska testas."
 )
-for rk, meta in RULE_SV.items():
-    st.markdown(f"**{rk} — {meta['titel']}**  \n{meta['villkor']}")
+for meta in RULE_SV.values():
+    st.markdown(f"**{meta['titel']}**  \n{meta['villkor']}")
 
 if is_synthetic():
-    st.warning("Syntetisk data — siffrorna nedan är exempel, inte resultat.")
+    st.warning("Syntetisk data — siffrorna nedan är historik på påhittade kurser, inte resultat.")
 
 d = latest_obs_date()
 ls = last_signal_date()
@@ -42,7 +40,7 @@ st.caption(
 
 # --------------------------------------------------------- aktiva signaler
 st.divider()
-st.subheader("Aktiva signaler")
+st.subheader("Vilka bolag lyser just nu?")
 weeks = st.slider("Titta … veckor bakåt", min_value=1, max_value=26, value=8)
 act = active_signals(weeks=weeks)
 
@@ -51,77 +49,62 @@ if act.empty:
 else:
     a = act.copy()
     a["Datum"] = pd.to_datetime(a["as_of_date"]).dt.strftime("%Y-%m-%d")
-
-    def _snap(s: str) -> str:
-        try:
-            dd = json.loads(s) if s else {}
-        except (TypeError, ValueError):
-            return ""
-        return ", ".join(f"{k}={round(v, 3)}" for k, v in dd.items() if v is not None)
-
-    a["Mätvärden vid träff"] = a["feature_snapshot"].apply(_snap)
-    a = a.rename(
-        columns={"name": "Bolag", "country": "Land", "sector": "Sektor", "rule": "Regel"}
-    )
+    a["Mönster"] = a["rule"].map({k: v["titel"] for k, v in RULE_SV.items()}).fillna(a["rule"])
+    a = a.rename(columns={"name": "Bolag", "country": "Land", "sector": "Sektor"})
     st.dataframe(
-        a[["Datum", "Bolag", "Land", "Sektor", "Regel", "Mätvärden vid träff"]],
+        a[["Datum", "Bolag", "Land", "Sektor", "Mönster"]],
         hide_index=True,
         width="stretch",
-        height=380,
+        height=360,
     )
-    st.caption(f"{len(a)} träffar · {a['Bolag'].nunique()} bolag. Öppna ett bolag i **Bolag i detalj**.")
+    st.caption(
+        f"{len(a)} träffar · {a['Bolag'].nunique()} bolag. "
+        "Öppna ett bolag under **Bolag i detalj** för hela genomgången."
+    )
 
-# --------------------------------------------------------- historiskt utfall
+# --------------------------------------------------------- historik
 st.divider()
-st.subheader("Hur har signalerna gått historiskt?")
+st.subheader("Vad har hänt historiskt efter varje mönster?")
 st.caption(
-    "Träffkvot = andel signaler som följdes av en stor uppgång inom fönstret. "
-    "Jämför med basnivån på **Start** (hur ofta det sker för ett slumpmässigt "
-    "bolag samma vecka). Syntetisk data — illustrativt."
+    "För varje mönster: hur ofta en stor uppgång följde inom olika tidsfönster "
+    "(**blått**), jämfört med hur ofta samma uppgång sker för vilket bolag som "
+    "helst samma vecka (**grått**). Historik på syntetisk data — inte en prognos."
 )
-out = signal_outcomes()
-if out.empty:
-    st.info("Inga signalutfall. Kör `uv run marc signals`.")
-else:
-    horizon_order = ["5d", "20d", "30d", "60d", "90d", "180d"]
-    out["horizon"] = pd.Categorical(out["horizon"], horizon_order, ordered=True)
-    out = out.sort_values(["rule", "horizon"])
-    tab = out.rename(
-        columns={
-            "rule": "Regel",
-            "horizon": "Fönster",
-            "n": "Antal",
-            "avg_fwd_ret": "Snittavkastning",
-            "hit_rate": "Träffkvot",
-        }
-    )
-    st.dataframe(
-        tab,
-        hide_index=True,
-        width="stretch",
-        column_config={
-            "Snittavkastning": st.column_config.NumberColumn(format="%+.3f"),
-            "Träffkvot": st.column_config.NumberColumn(format="%.2f"),
-        },
-    )
-    st.plotly_chart(
-        px.bar(
-            tab, x="Fönster", y="Träffkvot", color="Regel", barmode="group",
-            labels={"Träffkvot": "P(stor uppgång | signal)"}, height=340,
-        ),
-        width="stretch",
-    )
 
-box = fwd90_box()
-if not box.empty:
-    st.subheader("90-dagars avkastning — signaler vs alla observationer")
-    st.plotly_chart(
-        px.box(
-            box, x="grp", y="r", points=False,
-            labels={"r": "Avkastning 90 dagar", "grp": ""}, height=360,
-        ),
-        width="stretch",
-    )
+stats = rule_outcome_stats()
+if stats.empty:
+    st.info("Ingen signalhistorik. Kör `uv run marc signals`.")
+else:
+    for rk, meta in RULE_SV.items():
+        rs = stats[stats["rule"] == rk]
+        if rs.empty:
+            continue
+        n = int(rs["n"].iloc[0])
+        with st.container(border=True):
+            st.markdown(f"**{meta['titel']}**  ·  {n} historiska träffar")
+            if n < 20:
+                st.caption("För få träffar för att tolka utfallet.")
+                continue
+            long_rows = []
+            for _, r in rs.iterrows():
+                lbl = EVENT_SHORT.get(r["horizon"], r["horizon"])
+                long_rows.append({"x": lbl, "grp": "Efter signalen", "andel": r["hit_rate"]})
+                long_rows.append({"x": lbl, "grp": "Normalt", "andel": r["base_rate"]})
+            cdf = pd.DataFrame(long_rows)
+            fig = px.bar(
+                cdf, x="x", y="andel", color="grp", barmode="group",
+                color_discrete_map={"Efter signalen": "#2f6fed", "Normalt": "#b7bec9"},
+                labels={"andel": "andel av fallen", "x": "", "grp": ""},
+            )
+            fig.update_yaxes(tickformat=".0%")
+            fig.update_layout(height=280, margin=dict(l=0, r=0, t=6, b=0), legend=dict(orientation="h"))
+            st.plotly_chart(fig, width="stretch")
+            r90 = rs[rs["horizon"] == "90d"]
+            if not r90.empty:
+                st.caption(
+                    f"Största rörelse inom ~4 månader efteråt (median): "
+                    f"upp {r90['med_max_ret'].iloc[0]:+.0%}, ned {r90['med_max_dd'].iloc[0]:+.0%}."
+                )
 
 # --------------------------------------------------------- loggen
 st.divider()
@@ -132,5 +115,6 @@ with st.expander("Signalloggen (senaste 100)"):
     else:
         lg = lg.copy()
         lg["Datum"] = pd.to_datetime(lg["as_of_date"]).dt.strftime("%Y-%m-%d")
-        lg = lg.rename(columns={"name": "Bolag", "rule": "Regel"})
-        st.dataframe(lg[["Datum", "Bolag", "Regel"]], hide_index=True, width="stretch")
+        lg["Mönster"] = lg["rule"].map({k: v["titel"] for k, v in RULE_SV.items()}).fillna(lg["rule"])
+        lg = lg.rename(columns={"name": "Bolag"})
+        st.dataframe(lg[["Datum", "Bolag", "Mönster"]], hide_index=True, width="stretch")
