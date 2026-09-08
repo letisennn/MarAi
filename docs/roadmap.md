@@ -59,8 +59,21 @@ Follows `marc_ai_spec.md` §36.
     return.
 14. Fill in `architecture.md`, `data_sources.md`, `methodology.md`, ADR-0001.
 
-**Explicitly NOT in v0.1:** Google Trends, news, social, LLM, ML, fitted weights,
-paid APIs, any "this predicts X" claim.
+### Tillägg 2026-09-08 (Jonas)
+
+- **Preliminär composite-score** (`src/marc/score/`, `config/score.yml`): handsatt,
+  ovaliderad 0–100-poäng per aktie + uppskattat historiskt rörelsespann. Visas i
+  appen märkt "preliminär — ovaliderade vikter", bredvid basnivån. Ersätts av en
+  statistik-/ML-härledd vikt (E1 / v0.7).
+- **Appen omgjord till svenska klarspråk** kring bolaget: `Start`, `Bolag`
+  (screener med score), `Bolag i detalj` (bedömning + varför + läget i klartext),
+  `Signaler`, `Forskning`.
+- **v0.2–0.4 tidigarelagda:** Google Trends, nyhetsrubriker och forum/social
+  byggs parallellt med syntetisk källa först (som pris), riktiga adaptrar som
+  `--source`. Se `docs/data_sources.md`.
+
+**INTE i v0.1:** LLM, ML, betalda API:er. Score:n och uppsideuppskattningen får
+inte visas utan "preliminär/ovaliderad"-märkning förrän de validerats.
 
 **Exit criterion:** we can state, with CIs and an untouched holdout result,
 whether simple price/volume features carry statistically meaningful information

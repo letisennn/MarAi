@@ -37,7 +37,8 @@ Two processes, one file:
 | `marc/cleaning` | Validation (price sanity, non-negative volume, cross-source dedup, outlier flags), FX conversion to base ccy, as-of adjustment factors, delisting-return stitching. Nothing dropped silently. | `adjustment_factor`, `market_cap_daily`, cleaned views |
 | `marc/features` | Pure **causal** functions series→series, assembled per observation date. Versioned feature sets. Must not import `marc.targets`. | `observation`, `feature_panel` |
 | `marc/targets` | Forward returns / events per horizon. Uses future data **by design**; only ever joined to features for train/eval, never fed back. | `target_panel` |
-| `marc/signals` | Rule-based flags/scores from features (v0.1). No fitted weights. | `signal_log` |
+| `marc/signals` | Rule-based flags from features (v0.1). No fitted weights. | `signal_log` |
+| `marc/score` | **Preliminary** composite score (`config/score.yml`, hand-set weights). Pure function; app renders it labelled "ovaliderad". To be replaced by a stats/ML-derived, OOS-validated weight. | — |
 | `marc/stats` | Baseline rates, univariate sorts, IC, control comparisons, Fama-MacBeth, block bootstrap, BH-FDR. | `experiment`, `experiment_result` |
 | `marc/backtest` | Event studies + simple portfolio formation, purged/embargoed splits. Reports information content, not PnL. | `experiment_result`, `signal_outcome` |
 | `marc/ml` | v0.7 — scaffold only. | — |

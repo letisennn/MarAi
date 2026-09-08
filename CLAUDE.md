@@ -36,21 +36,39 @@ Projektet följer `docs/marc_ai_spec.md`. Ett tidigare "changes & additions"-
 dokument (structural rerating / multibagger) är struket i sin helhet — se
 `docs/archive/`.
 
+> **Ändring 2026-09-08 (Jonas).** Regel 1 och 2 nedan är uppmjukade: en
+> **preliminär** composite score och en **uppskattad** uppsida/nedsida får byggas
+> och visas nu, hårt märkta som ovaliderade. Metodreglerna 5, 6, 8, 9, 11 gäller
+> **utan undantag** — de är det som gör att siffrorna betyder något. Regel 3 är
+> utökad: Google Trends + nyhetsflöde + forum/social är godkända källor att börja
+> koppla in (gratis/legala först; ToS enligt regel 11).
+
 ## Hårda regler
 
-1. **Inga godtyckliga scoring-vikter.** Vikterna i en composite score måste
-   härledas ur statistik eller ML och valideras out-of-sample. Innan dess finns
-   ingen score. Exemplet "Discovery Score" i specen är endast illustrativt.
-2. **Ingen signal kallas prediktiv förrän den är testad** mot en riktig
+1. **Composite score får vara preliminär, aldrig oärlig.** En score med handsatta
+   vikter är tillåten som ett arbetsverktyg, men **varje** ställe den visas måste
+   märka den "preliminär — ovaliderade vikter" och visa den bredvid basnivån /
+   historisk frekvens. Vikterna ska på sikt härledas ur statistik/ML och valideras
+   kronologiskt out-of-sample; tills dess kallas den aldrig färdig. Riktningen på
+   varje delkomponent ska matcha uppmätt tecken i E1 där sådant finns.
+2. **Uppskattningar får visas, garantier aldrig.** Uppskattad potentiell uppsida,
+   nedsida och en samlad bedömning per aktie får presenteras om de (a) märks
+   preliminära/ovaliderade, (b) visas tillsammans med basnivån eller den
+   historiska frekvensen de bygger på, (c) aldrig formuleras som "kommer att".
+   Att kalla en signal **validerat prediktiv** kräver fortfarande test mot en
    kontrollgrupp, med konfidensintervall, på data som inte användes för att
    upptäcka den.
 3. **Inga dyra API:er** (Bloomberg, Refinitiv, RavenPack, betald X/Twitter osv.)
-   utan uttryckligt godkännande från Jonas/Hugo. Även billiga källor (~$20–30/mån)
-   kräver grönt ljus innan de kopplas in — se `docs/data_sources.md`.
-4. **Ingen avancerad AI/LLM-analys ännu.** LLM-arbete börjar i v0.5. När det gör
-   det hanterar LLM:er endast ostrukturerad text och får aldrig hitta på
-   kvantitativa påståenden ("AI-narrativ ger +35%"). Kvantitativa påståenden
-   kommer från databasen och statistiklagret.
+   utan uttryckligt godkännande från Jonas/Hugo. Även billiga betalkällor
+   (~$20–30/mån) kräver grönt ljus. **Godkända gratiskällor att koppla in
+   (2026-09-08):** Google Trends (pytrends), nyhetsrubriker (t.ex. Google News
+   RSS / GDELT), forum/social (t.ex. Reddit API). Varje ny källa loggas i
+   `docs/data_sources.md` med licensvillkor först.
+4. **Ingen LLM-analys ännu.** LLM-arbete börjar i v0.5. Attention-, nyhets- och
+   forumsignaler byggs tills dess med enkel frekvens/nyckelord/z-score — ingen
+   modell som "tolkar" text. När LLM:er väl används hanterar de endast
+   ostrukturerad text och hittar aldrig på kvantitativa påståenden; siffror kommer
+   från databasen och statistiklagret.
 5. **Point-in-time-disciplin.** Varje feature vid tidpunkt `t` får bara använda
    information som var känd vid `t`. Kurser lagras ojusterade; justeringar
    härleds as-of. Allt som revideras (aktier utestående, fundamenta, estimat)
@@ -153,16 +171,20 @@ som kör hela pipelinen i en temp-DB): `uv run pytest`.
 - **v0.1** marknadsbaslinje: universum, pris/volym/market cap, kausala features,
   forward-return-targets, DuckDB, statistisk baslinje (experiment E1), enkel
   backtest. Mål: bär enkel pris-/volym-beteende information? "Nej" är ett giltigt
-  svar.
-- **v0.2** attention (Google/sök). **v0.3** nyhetsflöde. **v0.4** social/forum.
+  svar. **+ preliminär composite score och uppsideuppskattning i appen (märkta
+  ovaliderade), samt en klarspråksvy per aktie.** (Jonas 2026-09-08.)
+- **v0.2–0.4 tidigareläggs och byggs parallellt** (Jonas 2026-09-08): attention
+  (Google Trends), nyhetsflöde (rubrikräkning/-ton), social/forum (Reddit m.fl.).
+  Syntetisk källa först så pipelinen kör offline, riktiga adaptrar som `--source`.
 - **v0.5** LLM narrative detection. **v0.6** förväntningar (analytikerestimat,
   insiders, blankning, ägande, earnings calls). **v0.7** maskininlärning.
   **v1.0** live scanner.
 
 ## Fråga innan
 
-- Inkoppling av någon betald datakälla.
-- Att lägga till en ny extern datakälla (licenskontroll först).
-- Att införa skattade vikter eller en composite score.
+- Inkoppling av någon **betald** datakälla.
+- Att lägga till en ny extern datakälla utöver de godkända i regel 3
+  (licens-/ToS-kontroll först, loggas i `docs/data_sources.md`).
 - Att starta LLM- eller ML-arbete före dess version.
-- Något påstående i output om att en signal förutsäger en rörelse.
+- Att ta bort "preliminär/ovaliderad"-märkningen från en score eller
+  uppsideuppskattning (kräver att den först validerats enligt regel 1–2).

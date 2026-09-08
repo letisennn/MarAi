@@ -1,0 +1,30 @@
+# PRELIMINÄR composite-score — handsatta vikter, OVALIDERAD.
+#
+# Detta är ett arbetsverktyg, inte ett forskningsresultat. Vikterna är gissade,
+# inte skattade. Score:n ska på sikt härledas ur E1/ML och valideras kronologiskt
+# out-of-sample; tills dess visas den i appen alltid med etiketten
+# "preliminär — ovaliderade vikter" och bredvid basnivån (CLAUDE.md regel 1–2,
+# ändring 2026-09-08).
+#
+# Varje delkomponent poängsätts 0–100 som en tvärsnitts-percentil bland de bolag
+# som är i universumet samma vecka (point-in-time, regel 5). Riktningen (mer =
+# högre score) matchar tecknet som E1 mäter för momentum-/volymfamiljen.
+
+score_version: prelim_v0.1
+
+weights:
+  momentum: 0.40          # ret_3m / ret_6m / ret_12m
+  narhet_arshogsta: 0.20  # dist_52w_high (närmare toppen = högre)
+  volymintresse: 0.25     # rvol_5_60 / vol_accel
+  monster: 0.15           # antal förregistrerade mönster som lyst de senaste veckorna
+
+# ordbandstext för totalpoängen
+bands:
+  - [0, "Svag"]
+  - [30, "Ljummen"]
+  - [45, "Neutral"]
+  - [60, "Stark"]
+  - [78, "Mycket stark"]
+
+# hur många veckor bakåt "monster"-komponenten tittar
+monster_lookback_weeks: 8

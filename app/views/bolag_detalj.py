@@ -1,4 +1,4 @@
-"""Bolag i detalj — en läsbar genomgång: sammanfattning, läget nu, mönster, kurs."""
+"""Bolag i detalj — en läsbar bedömning: poäng, uppskattat spann, varför, läget nu."""
 
 from __future__ import annotations
 
@@ -17,15 +17,18 @@ from _data import (
     feature_label,
     fmt_feature,
     interpret_feature,
+    pct_vs_normal,
     rule_outcome_stats,
     screener,
     security_corporate_actions,
+    security_feature_history,
     security_features_latest,
     security_list,
     security_listing_history,
     security_overview,
     security_prices,
     security_signal_history,
+    stock_assessment,
 )
 
 st.title("Bolag i detalj")
@@ -44,25 +47,16 @@ sid = int(secs.loc[secs["name"] == pick, "security_id"].iloc[0])
 ov = security_overview(sid)
 obs_date, feats = security_features_latest(sid)
 hist = security_signal_history(sid)
-
-# senaste mönsterträff + lyser-nu
-last_row = None
-n_now = 0
 if not hist.empty:
     hist = hist.assign(_d=pd.to_datetime(hist["as_of_date"]))
-    last_row = hist.sort_values("_d").iloc[-1]
-    if obs_date is not None:
-        n_now = int((hist["_d"] == pd.Timestamp(obs_date)).sum())
+assess = stock_assessment(sid)
+fhist = security_feature_history(sid)
 
 # --------------------------------------------------------------- rubrikrad
 cs = COUNTRY_SV.get(ov.get("country"), ov.get("country") or "—")
-seg = None
-if not feats:
-    seg = None
-else:
-    sc_row = screener()
-    m = sc_row[sc_row["name"] == pick]
-    seg = (m["segment"].iloc[0] if not m.empty else None)
+sc_all = screener()
+m = sc_all[sc_all["name"] == pick]
+seg = m["segment"].iloc[0] if not m.empty else None
 seg_word = {"small": "småbolag", "mid": "bolag som vuxit ur small cap"}.get(seg, "bolag")
 mc = ov.get("market_cap_sek")
 mc_txt = (
@@ -75,12 +69,36 @@ st.markdown(
     f"{seg_word}, börsvärde {mc_txt}"
 )
 
+# --------------------------------------------------------------- bedömning
+if assess.get("has_feats"):
+    st.subheader("Bedömning")
+    score = assess["score"]
+    band = assess["band"]
+    up = assess.get("upside")
+    dn = assess.get("downside")
+
+    b1, b2 = st.columns([3, 4])
+    with b1, st.container(border=True):
+        st.caption("Marc-signal (preliminär)")
+        st.markdown(f"## {score:.0f} / 100 — {band}")
+        st.progress(min(max(score / 100, 0.0), 1.0))
+        st.caption("Ovaliderade vikter. Se **Varför** nedan.")
+    with b2, st.container(border=True):
+        st.caption(f"Historiskt rörelsespann inom ~4 månader — {assess['range_basis']}")
+        if up is not None and dn is not None:
+            u1, u2 = st.columns(2)
+            u1.markdown(f"### {up:+.0%}")
+            u1.caption("möjlig uppgång (median)")
+            u2.markdown(f"### {dn:+.0%}")
+            u2.caption("möjlig nedgång (median)")
+        st.caption("Beskrivande historik, **inte en prognos**. Syntetisk data.")
+
 # --------------------------------------------------------------- sammanfattning
 def _summary() -> str:
     if not feats:
         return (
             f"{pick} har inte varit i universumet under studieperioden "
-            f"(för litet, för lågt handlat, för kort historik, uppköpt eller i konkurs), "
+            "(för litet, för lågt handlat, för kort historik, uppköpt eller i konkurs), "
             "så det finns inga mätningar att gå igenom. Kursgrafen längre ner visar ändå "
             "prishistoriken."
         )
@@ -109,17 +127,7 @@ def _summary() -> str:
         else:
             pos = f" och ligger långt under årshögsta ({abs(dist):.0%})"
 
-    if rv is None:
-        vol = ""
-    elif rv >= 2:
-        vol = f"Handeln är kraftigt förhöjd ({rv:.1f}× det normala)"
-    elif rv >= 1.3:
-        vol = f"Handeln är något förhöjd ({rv:.1f}× det normala)"
-    elif rv >= 0.8:
-        vol = "Handeln ligger på normal nivå"
-    else:
-        vol = f"Handeln är låg ({rv:.1f}× det normala)"
-
+    vol = "" if rv is None else f"Handeln är {pct_vs_normal(rv)}"
     vlt = ""
     if rvol20 is not None:
         vlt = (
@@ -130,11 +138,15 @@ def _summary() -> str:
         if vexp is not None and vexp >= 1.3:
             vlt += ", med tilltagande svängningar"
 
+    n_now = 0
+    if not hist.empty and obs_date is not None:
+        n_now = int((hist["_d"] == pd.Timestamp(obs_date)).sum())
     if n_now > 0:
         pat = f"**{n_now} av 3 förregistrerade mönster lyser den här veckan** (se nedan)."
-    elif last_row is not None:
-        titel = RULE_SV.get(last_row["rule"], {}).get("titel", last_row["rule"])
-        pat = f'Inget mönster lyser just nu; senast var {last_row["_d"]:%Y-%m-%d} ("{titel}").'
+    elif not hist.empty:
+        lr = hist.sort_values("_d").iloc[-1]
+        titel = RULE_SV.get(lr["rule"], {}).get("titel", lr["rule"])
+        pat = f'Inget mönster lyser just nu; senast var {lr["_d"]:%Y-%m-%d} ("{titel}").'
     else:
         pat = "Inget av de tre förregistrerade mönstren har lyst för det här bolaget."
 
@@ -144,77 +156,78 @@ def _summary() -> str:
 
 st.markdown(_summary())
 
-# --------------------------------------------------------------- läget just nu
-if feats:
-    st.subheader("Läget just nu")
+# --------------------------------------------------------------- varför
+if assess.get("has_feats"):
+    st.subheader("Varför den poängen?")
     st.caption(
-        f"Mätt vid senaste observationsveckan {pd.Timestamp(obs_date):%Y-%m-%d}. "
-        "Rena mätningar — ingen värdering."
+        "Poängen väger fyra saker. Varje del jämförs med de andra bolagen i "
+        "universumet just nu (0 = svagast, 100 = starkast). Vikterna är handsatta "
+        "och ovaliderade."
     )
-    r3 = feats.get("ret_3m")
-    r12 = feats.get("ret_12m")
-    dist = feats.get("dist_52w_high")
-    rv = feats.get("rvol_5_60")
-    rvd = feats.get("rv_20d")
-    vexp = feats.get("vol_expansion")
+    for c in assess["components"]:
+        st.markdown(f"**{c['label']}**  ·  {c['score']:.0f} / 100  ·  vikt {c['weight']:.0%}")
+        st.progress(min(max(c["score"] / 100, 0.0), 1.0))
+        st.caption(c["detail"])
 
-    def _word(val, bands):
-        for lim, w in bands:
-            if val is not None and val >= lim:
-                return w
-        return bands[-1][1]
+# --------------------------------------------------------------- läget just nu
+def _own_ctx(name: str, value) -> str:
+    if fhist.empty or name not in fhist.columns or value is None:
+        return ""
+    s = pd.to_numeric(fhist[name], errors="coerce").dropna().tail(52)
+    if len(s) < 10:
+        return ""
+    pct = float((s < value).mean())
+    if pct >= 0.92:
+        return "det högsta på ett år"
+    if pct <= 0.08:
+        return "det lägsta på ett år"
+    return f"högre än {round(pct * 10)} av 10 veckor det senaste året"
 
-    def _card(col, title, big, sub):
-        with col, st.container(border=True):
-            st.caption(title)
-            st.markdown(f"#### {big}")
-            st.caption(sub)
 
-    c1, c2, c3, c4 = st.columns(4)
-    _card(
-        c1, "Trend",
-        _word(r3, [(0.15, "Stark uppåt"), (0.0, "Svagt uppåt"), (-0.15, "Svagt nedåt"), (-99, "Nedåt")]),
-        (f"kurs {r3:+.0%} / 3 mån" + (f" · {r12:+.0%} / år" if r12 is not None else ""))
-        if r3 is not None else "för kort historik",
-    )
-    _card(
-        c2, "Läge mot årshögsta",
-        _word(dist, [(-0.05, "Vid toppen"), (-0.20, "Nära toppen"), (-99, "Långt under")]),
-        f"{dist:+.0%} från årshögsta" if dist is not None else "–",
-    )
-    _card(
-        c3, "Handel",
-        _word(rv, [(2.0, "Kraftigt förhöjd"), (1.3, "Förhöjd"), (0.8, "Normal"), (-99, "Låg")]),
-        f"{rv:.1f}× mot 60-dagssnittet" if rv is not None else "–",
-    )
-    _card(
-        c4, "Rörlighet",
-        _word(rvd, [(0.5, "Hög"), (0.3, "Måttlig"), (-99, "Lugn")]),
-        (f"volatilitet {rvd:.0%}" + (" · ökar" if vexp is not None and vexp >= 1.3 else " · stabil"))
-        if rvd is not None else "–",
-    )
+if feats:
+    st.subheader("Läget just nu, i klartext")
+    st.caption(f"Mätt {pd.Timestamp(obs_date):%Y-%m-%d}. Rena mätningar — ingen värdering.")
+
+    lines = [
+        ("Kursutveckling 1 månad", "ret_1m", lambda v: f"{v:+.0%}", True),
+        ("Kursutveckling 3 månader", "ret_3m", lambda v: f"{v:+.0%}", True),
+        ("Kursutveckling 12 månader", "ret_12m", lambda v: f"{v:+.0%}", True),
+        ("Läge mot årshögsta", "dist_52w_high", lambda v: f"{v:+.0%} (0 % = vid toppen)", True),
+        ("Handelsvolym mot normalt", "rvol_5_60", pct_vs_normal, False),
+        ("Handeln ökar eller minskar", "vol_accel",
+         lambda v: "ökar" if v > 0 else "minskar" if v < 0 else "oförändrad", False),
+        ("Svängningar (volatilitet, årstakt)", "rv_20d", lambda v: f"{v:.0%}", True),
+        ("Ny 20-dagarshögsta den här veckan", "breakout_20d",
+         lambda v: "ja" if v and v >= 0.5 else "nej", False),
+    ]
+    for label, key, fmt, ctx_ok in lines:
+        if key not in feats or feats[key] is None:
+            continue
+        ctx = _own_ctx(key, feats[key]) if ctx_ok else ""
+        tail = f"  —  *{ctx}*" if ctx else ""
+        st.markdown(f"**{label}:** {fmt(feats[key])}{tail}")
 
 # --------------------------------------------------------------- mönster
 st.subheader("Förregistrerade mönster")
-st.warning(
-    "Siffrorna nedan är **historiska frekvenser i hela panelen** — inte en prognos "
-    "för det här bolaget. Mönstren är bestämda i förväg men **inte bevisade** bära "
-    "information, och datan är syntetisk. Läs det som *vad systemet ser*, inte som köpråd."
+st.info(
+    "Ett mönster som lyser betyder att bolaget matchar villkoren. Siffrorna är "
+    "**historiska frekvenser i hela panelen** — inte en prognos, och mönstren är "
+    "inte bevisade. Datan är syntetisk."
 )
 
 stats_all = rule_outcome_stats()
 for rk, meta in RULE_SV.items():
     sub = hist[hist["rule"] == rk] if not hist.empty else pd.DataFrame()
-    last = pd.to_datetime(sub["as_of_date"]).max() if not sub.empty else None
-    fires_now = bool(last is not None and obs_date is not None and pd.Timestamp(last) == pd.Timestamp(obs_date))
+    last = sub["_d"].max() if not sub.empty else None
+    fires_now = bool(last is not None and obs_date is not None and last == pd.Timestamp(obs_date))
 
     with st.container(border=True):
         if fires_now:
-            st.markdown(f"🟢 **Lyser nu** — {meta['titel']}")
+            st.markdown(f"**Lyser nu** — {meta['titel']}")
         elif last is not None:
-            st.markdown(f"🟡 Lyste senast {pd.Timestamp(last):%Y-%m-%d} — {meta['titel']}")
+            st.markdown(f"Lyste senast {last:%Y-%m-%d} — {meta['titel']}")
         else:
-            st.markdown(f"⚪ Har aldrig lyst — {meta['titel']}")
+            st.markdown(f"Har aldrig lyst — {meta['titel']}")
         st.caption("Villkor: " + meta["villkor"])
 
         rs = stats_all[stats_all["rule"] == rk] if not stats_all.empty else pd.DataFrame()
@@ -223,9 +236,7 @@ for rk, meta in RULE_SV.items():
             continue
         n = int(rs["n"].iloc[0])
         if n < 20:
-            st.caption(
-                f"Bara {n} historiska träffar i panelen — för få för att säga något om utfallet."
-            )
+            st.caption(f"Bara {n} historiska träffar i panelen — för få för att säga något om utfallet.")
             continue
 
         row90 = rs[rs["horizon"] == "90d"]
@@ -235,14 +246,12 @@ for rk, meta in RULE_SV.items():
             mmr = float(row90["med_max_ret"].iloc[0])
             mmd = float(row90["med_max_dd"].iloc[0])
             mult = hit / base if base else None
-            if mult is None:
-                comp = ""
-            elif mult >= 1.25:
-                comp = f" — ungefär {mult:.1f} gånger så ofta som normalt ({base:.0%})"
-            elif mult <= 0.8:
-                comp = f" — mer sällan än normalt ({base:.0%})"
-            else:
-                comp = f" — ungefär lika ofta som normalt ({base:.0%})"
+            comp = (
+                f" — ungefär {mult:.1f} gånger så ofta som normalt ({base:.0%})" if mult and mult >= 1.25
+                else f" — mer sällan än normalt ({base:.0%})" if mult and mult <= 0.8
+                else f" — ungefär lika ofta som normalt ({base:.0%})" if mult
+                else ""
+            )
             st.markdown(
                 f"När mönstret lyst har en uppgång på **minst +50 % inom ~4 månader** "
                 f"följt i **{hit:.0%}** av fallen{comp}."
@@ -257,9 +266,8 @@ for rk, meta in RULE_SV.items():
             lbl = EVENT_SHORT.get(r["horizon"], r["horizon"])
             long_rows.append({"x": lbl, "grp": "Efter signalen", "andel": r["hit_rate"]})
             long_rows.append({"x": lbl, "grp": "Normalt", "andel": r["base_rate"]})
-        cdf = pd.DataFrame(long_rows)
         fig = px.bar(
-            cdf, x="x", y="andel", color="grp", barmode="group",
+            pd.DataFrame(long_rows), x="x", y="andel", color="grp", barmode="group",
             color_discrete_map={"Efter signalen": "#2f6fed", "Normalt": "#b7bec9"},
             labels={"andel": "andel av fallen", "x": "", "grp": ""},
         )
@@ -293,12 +301,12 @@ else:
     fig.update_layout(height=440, margin=dict(l=0, r=0, t=10, b=0), legend=dict(orientation="h"))
     st.plotly_chart(fig, width="stretch")
     st.caption(
-        "Justerad kurs = räknad bakåt för splittar och utdelningar, så trenden går att "
-        "jämföra över tid. Rå kurs = vad som faktiskt handlades."
+        "Justerad kurs = räknad bakåt för splittar och utdelningar, så trenden går "
+        "att jämföra över tid. Rå kurs = vad som faktiskt handlades."
     )
 
-# --------------------------------------------------------------- rådata (dolt)
-with st.expander("Alla mätvärden vid senaste veckan"):
+# --------------------------------------------------------------- referens (dolt)
+with st.expander("Alla mätvärden vid senaste veckan (referens)"):
     if not feats:
         st.write("Inga mätningar.")
     else:
@@ -311,11 +319,8 @@ with st.expander("Alla mätvärden vid senaste veckan"):
         st.dataframe(
             pd.DataFrame(
                 [
-                    {
-                        "Mått": feature_label(k),
-                        "Värde": fmt_feature(k, feats[k]),
-                        "I klartext": interpret_feature(k, feats[k]),
-                    }
+                    {"Mått": feature_label(k), "Värde": fmt_feature(k, feats[k]),
+                     "I klartext": interpret_feature(k, feats[k])}
                     for k in order if k in feats
                 ]
             ),
@@ -323,7 +328,7 @@ with st.expander("Alla mätvärden vid senaste veckan"):
             width="stretch",
         )
 
-with st.expander("Mätvärden vid varje mönsterträff"):
+with st.expander("Mätvärden vid varje mönsterträff (referens)"):
     if hist.empty:
         st.write("Inga mönsterträffar.")
     else:
@@ -347,10 +352,8 @@ with st.expander("Bolagshändelser och noteringshistorik"):
     st.caption("Splittar, utdelningar, avnotering")
     st.dataframe(
         security_corporate_actions(sid).rename(
-            columns={
-                "action_type": "Typ", "ex_date": "X-datum", "ratio": "Kvot",
-                "cash_amount": "Belopp", "currency": "Valuta", "source": "Källa",
-            }
+            columns={"action_type": "Typ", "ex_date": "X-datum", "ratio": "Kvot",
+                     "cash_amount": "Belopp", "currency": "Valuta", "source": "Källa"}
         ),
         hide_index=True,
         width="stretch",
@@ -358,10 +361,8 @@ with st.expander("Bolagshändelser och noteringshistorik"):
     st.caption("Noteringshistorik")
     st.dataframe(
         security_listing_history(sid).rename(
-            columns={
-                "status": "Status", "market_segment": "Lista",
-                "valid_from": "Från", "valid_to": "Till", "reason": "Orsak",
-            }
+            columns={"status": "Status", "market_segment": "Lista",
+                     "valid_from": "Från", "valid_to": "Till", "reason": "Orsak"}
         ),
         hide_index=True,
         width="stretch",

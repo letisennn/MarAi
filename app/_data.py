@@ -19,6 +19,7 @@ if str(_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(_ROOT / "src"))
 
 from marc.config import get_settings, universe_config  # noqa: E402
+from marc.score import assess as _assess  # noqa: E402
 
 # --------------------------------------------------------------------------- #
 # klarspråk
@@ -117,6 +118,16 @@ RULE_SV: dict[str, dict[str, str]] = {
 
 def feature_label(name: str) -> str:
     return FEATURE_SV.get(name, (name, "num"))[0]
+
+
+def pct_vs_normal(ratio: float | None) -> str:
+    """En kvot där 1,0 = normalt -> klarspråk i procent."""
+    if ratio is None or (isinstance(ratio, float) and pd.isna(ratio)):
+        return "–"
+    d = ratio - 1.0
+    if abs(d) < 0.10:
+        return "på normal nivå"
+    return f"{abs(d) * 100:.0f} % {'högre' if d > 0 else 'lägre'} än normalt"
 
 
 def _is_missing(value) -> bool:
@@ -327,7 +338,7 @@ def screener(weeks: int = 8) -> pd.DataFrame:
         WHERE sl.as_of_date >= (SELECT min(obs_date) FROM recent)
         GROUP BY 1
     )
-    SELECT s.name, s.country, s.sector, s.status,
+    SELECT s.security_id, s.name, s.country, s.sector, s.status,
            orw.obs_date                                       AS obs_date,
            orw.market_cap_sek                                 AS market_cap_sek,
            orw.cap_segment_at_entry                           AS segment,
@@ -613,6 +624,120 @@ def rule_outcome_stats() -> pd.DataFrame:
     df["lift"] = df["hit_rate"] / df["base_rate"]
     df["ord"] = df["horizon"].map(_HZ_ORDER)
     return df.sort_values(["rule", "ord"]).reset_index(drop=True)
+
+
+@st.cache_data(ttl=60)
+def panel_forward_ranges() -> dict:
+    """Panelbrett historiskt spann (small): median max-uppgång / max-nedgång / avkastning inom ~4 mån."""
+    df = q(
+        """
+        WITH t AS (
+            SELECT o.obs_id,
+                max(CASE WHEN tp.target_name='fwd_max_ret_90' THEN tp.value END) AS mret,
+                max(CASE WHEN tp.target_name='fwd_max_dd_90'  THEN tp.value END) AS mdd,
+                max(CASE WHEN tp.target_name='fwd_ret_90'     THEN tp.value END) AS ret
+            FROM observation o JOIN target_panel tp USING (obs_id)
+            WHERE o.cap_segment_at_entry = 'small'
+            GROUP BY 1
+        )
+        SELECT median(mret) AS med_max_ret, median(mdd) AS med_max_dd,
+               median(ret) AS med_ret, quantile_cont(mret, 0.75) AS p75_max_ret
+        FROM t
+        """
+    )
+    return {} if df.empty else df.iloc[0].to_dict()
+
+
+@st.cache_data(ttl=60)
+def peer_features_latest() -> pd.DataFrame:
+    """Wide-ram: en rad per bolag som har en observation senaste veckan, kolumn per mått."""
+    long = q(
+        """
+        SELECT o.security_id, fp.feature_name, fp.value
+        FROM observation o JOIN feature_panel fp USING (obs_id)
+        WHERE o.obs_date = (SELECT max(obs_date) FROM observation)
+        """
+    )
+    if long.empty:
+        return pd.DataFrame()
+    return long.pivot(index="security_id", columns="feature_name", values="value")
+
+
+@st.cache_data(ttl=60)
+def _rules_by_security(weeks: int = 8) -> dict:
+    df = q(
+        """
+        WITH recent AS (SELECT DISTINCT obs_date FROM observation ORDER BY obs_date DESC LIMIT ?)
+        SELECT security_id, count(DISTINCT split_part(rule_version, ':', -1)) AS n
+        FROM signal_log
+        WHERE as_of_date >= (SELECT min(obs_date) FROM recent)
+        GROUP BY 1
+        """,
+        (weeks,),
+    )
+    return dict(zip(df["security_id"], df["n"], strict=False))
+
+
+@st.cache_data(ttl=60)
+def all_scores(weeks: int = 8) -> pd.DataFrame:
+    """Preliminär composite-score för varje bolag med mätvärden senaste veckan."""
+    peers = peer_features_latest()
+    if peers.empty:
+        return pd.DataFrame(columns=["security_id", "score", "band"])
+    rmap = _rules_by_security(weeks)
+    rows = []
+    for sid, frow in peers.iterrows():
+        b = _assess(frow.to_dict(), peers, int(rmap.get(sid, 0)))
+        rows.append({"security_id": int(sid), "score": b.total, "band": b.band})
+    return pd.DataFrame(rows)
+
+
+@st.cache_data(ttl=60)
+def stock_assessment(sid: int, weeks: int = 8) -> dict:
+    """Full bedömning för ett bolag: composite-score + uppdelning + historiskt rörelsespann."""
+    obs_date, feats = security_features_latest(sid)
+    peers = peer_features_latest()
+    rmap = _rules_by_security(weeks)
+    n_rules = int(rmap.get(sid, 0))
+    out: dict = {"obs_date": obs_date, "has_feats": bool(feats)}
+    if not feats or peers.empty:
+        return out
+
+    b = _assess(feats, peers, n_rules)
+    out["score"] = b.total
+    out["band"] = b.band
+    out["score_version"] = b.score_version
+    out["components"] = [
+        {"key": c.key, "label": c.label, "score": c.score, "weight": c.weight, "detail": c.detail}
+        for c in b.components
+    ]
+
+    # historiskt rörelsespann inom ~4 mån för "bolag i det här läget"
+    hist = security_signal_history(sid)
+    stats = rule_outcome_stats()
+    basis = "generellt för ett litet bolag (median i panelen)"
+    up = dn = None
+    if n_rules > 0 and not hist.empty and not stats.empty and obs_date is not None:
+        rd = q("SELECT DISTINCT obs_date FROM observation ORDER BY obs_date DESC LIMIT ?", (weeks,))
+        cutoff = pd.to_datetime(rd["obs_date"]).min() if not rd.empty else pd.Timestamp.min
+        fired = hist.assign(_d=pd.to_datetime(hist["as_of_date"]))
+        fired = fired[fired["_d"] >= cutoff].sort_values("_d")
+        if not fired.empty:
+            rk = fired.iloc[-1]["rule"]
+            rs = stats[(stats["rule"] == rk) & (stats["horizon"] == "90d")]
+            if not rs.empty and int(rs["n"].iloc[0]) >= 20:
+                up = float(rs["med_max_ret"].iloc[0])
+                dn = float(rs["med_max_dd"].iloc[0])
+                basis = f'efter mönstret "{RULE_SV.get(rk, {}).get("titel", rk)}" (median i historiken)'
+    if up is None:
+        pr = panel_forward_ranges()
+        up = pr.get("med_max_ret")
+        dn = pr.get("med_max_dd")
+    out["upside"] = up
+    out["downside"] = dn
+    out["range_basis"] = basis
+    out["n_rules"] = n_rules
+    return out
 
 
 @st.cache_data(ttl=60)

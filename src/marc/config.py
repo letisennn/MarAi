@@ -66,6 +66,12 @@ def targets_config() -> dict[str, Any]:
     return load_yaml("config/targets.yml")
 
 
+@lru_cache
+def score_config() -> dict[str, Any]:
+    """Preliminary composite-score weights. Hand-set, unvalidated — see CLAUDE.md rule 1."""
+    return load_yaml("config/score.yml")
+
+
 _LOGGING_READY = False
 
 
