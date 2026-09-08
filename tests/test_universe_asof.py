@@ -51,13 +51,16 @@ def test_membership_asof_is_pointintime(pipeline_db) -> None:
 
 
 def test_cap_segment_matches_market_cap(pipeline_db) -> None:
+    from marc.config import universe_config
+
+    ceiling = float(universe_config()["cap_segments"]["small_max_market_cap_sek"])
     df = pipeline_db.execute(
         "SELECT cap_segment_at_entry, market_cap_sek FROM observation"
     ).df()
     small = df[df["cap_segment_at_entry"] == "small"]
     mid = df[df["cap_segment_at_entry"] == "mid"]
-    assert (small["market_cap_sek"] <= 1.7e9 + 1).all()
-    assert (mid["market_cap_sek"] > 1.7e9).all()
+    assert (small["market_cap_sek"] <= ceiling + 1).all()
+    assert (mid["market_cap_sek"] > ceiling).all()
 
 
 def test_targets_have_sane_range(pipeline_db) -> None:

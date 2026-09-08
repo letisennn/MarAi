@@ -1,11 +1,1 @@
 isin,action_type,ex_date,ratio,cash_amount,currency,detail
-SE0SYN000002,split,2020-05-25,10,,,Paradox 10:1 split (illustrative)
-SE0SYN000010,split,2021-05-17,5,,,Fortnox 5:1 split (illustrative)
-SE0SYN000012,split,2021-05-14,4,,,Nibe 4:1 split (illustrative)
-SE0SYN000014,split,2022-06-13,3,,,Hexatronic 3:1 split (illustrative)
-SE0SYN000001,split,2021-06-07,2,,,Sinch 2:1 split (illustrative)
-FI0SYN000039,split,2021-04-01,2,,,Qt Group 2:1 split (illustrative)
-SE0SYN000007,dividend,2022-05-16,,3.5,SEK,Lifco annual dividend (illustrative)
-SE0SYN000013,dividend,2022-04-11,,5.0,SEK,Beijer Ref annual dividend (illustrative)
-SE0SYN000021,dividend,2021-05-06,,17.0,SEK,Nolato annual dividend (illustrative)
-NO0SYN000027,dividend,2022-04-20,,5.75,NOK,Borregaard annual dividend (illustrative)

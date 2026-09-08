@@ -22,7 +22,7 @@ dependencies = [
     "python-dateutil>=2.9",
     "streamlit>=1.36",
     "plotly>=5.22",
-    "yfinance>=0.2.40",   # optional real price source; synthetic source is the default
+    "yfinance>=0.2.40",   # real price source (default); synthetic source for offline/demo
 ]
 
 [project.optional-dependencies]

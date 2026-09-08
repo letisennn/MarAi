@@ -3,6 +3,19 @@
 Status: **research notes**, pending Jonas/Hugo review. Rule: no source is wired
 in — free or paid — without a green light. Verify licensing before adding.
 
+## Ändring 2026-09-08 (Jonas) — riktig prisdata på som standard
+
+Den syntetiska källan var för trubbig för att arbeta mot (allt platt, inga
+rörelser, stannar i studieperiodens slut). **yfinance (Yahoo Finance) är nu
+standardkälla** för `marc pipeline` (`--source synthetic` finns kvar för offline/
+demo). Seed-universumet (`data/seed/securities.csv`) är ~80 riktiga nordiska
+namn — Stockholm-tunga, med de volatila First North/Spotlight-namnen. Nyckel =
+Yahoo-ticker (inte riktig ISIN). Small-cap-taket i `config/universe.yml` höjt
+1.7bn → **5bn SEK** (Nasdaq-gränsen var för snäv för ett användbart universum).
+Kvarstående brist: Yahoo tappar avnoterade tickers, så universumet är fortfarande
+**survivorship-biased** — samma gating som förr, ingen slutsats är
+survivorship-ren förrän Börsdata/EODHD är påkopplad.
+
 ## v0.1 needs only
 
 Daily OHLCV (unadjusted) · shares outstanding history · corporate actions

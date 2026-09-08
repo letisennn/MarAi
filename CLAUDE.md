@@ -155,14 +155,17 @@ data/          gitignorerad: marc.duckdb + raw/ interim/ analytical/
 
 ```
 uv sync --extra dev                          # installera (uv provisionerar Python 3.11+)
-uv run marc pipeline --source synthetic --reset   # hela kedjan: migrate → seed → ingest → clean → universe → panel → E1 → signals
+uv run marc pipeline --source yfinance --reset    # hela kedjan: migrate → seed → ingest → clean → universe → panel → E1 → signals
 uv run streamlit run app/Home.py             # webbappen (läser data/marc.duckdb read-only)
 ```
 
 Delkommandon: `marc db migrate`, `marc panel`, `marc stats`, `marc signals`,
-`marc info`. `--source yfinance` byter till riktig (men survivorship-biased,
-rate-limitad) prisdata. Standard är `synthetic` — deterministisk pseudo-slump,
-ingen marknadsdata, finns för att köra och demo:a systemet.
+`marc info`. **Standard är `yfinance`** (2026-09-08, Jonas) — riktig dagsdata från
+Yahoo Finance för ~80 riktiga nordiska namn i `data/seed/securities.csv`,
+survivorship-biased och rate-limitad. `--source synthetic` = deterministisk
+pseudo-slump, ingen marknadsdata, finns för att köra offline / demo:a systemet.
+`study_end: null` i `config/universe.yml` ⇒ panelen körs alltid fram till senaste
+handelsdag.
 
 Snabb testdelmängd: `uv run pytest tests/test_features_causality.py
 tests/test_targets.py tests/test_layering.py`. Full svit (inkl. integrationstest

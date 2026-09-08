@@ -101,7 +101,9 @@ def build_panel(con: duckdb.DuckDBPyConnection) -> dict:
     name = ucfg["universe_name"]
     small_max = float(ucfg["cap_segments"]["small_max_market_cap_sek"])
     min_hist = int(ucfg["min_history_trading_days"])
-    start, end = pd.Timestamp(ucfg["study_start"]), pd.Timestamp(ucfg["study_end"])
+    start = pd.Timestamp(ucfg["study_start"])
+    # study_end tomt/null => kör fram till senaste handelsdag (så panelen alltid är aktuell)
+    end = pd.Timestamp(ucfg["study_end"]) if ucfg.get("study_end") else pd.Timestamp.today().normalize()
     tsv = targets_config()["target_set_version"]
 
     cal = pd.DatetimeIndex(

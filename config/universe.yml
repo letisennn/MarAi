@@ -25,11 +25,13 @@ exchanges:
     - { mic: FNFI, segment: first_north,     name: "Nasdaq First North Growth Market FI" }
 
 # Point-in-time market cap for ADMISSION into the universe, in base_currency (SEK).
-# Ceiling = Nasdaq Nordic "Small Cap" boundary (< EUR 150m ~ SEK 1.7bn). A name
-# first seen above the ceiling is a genuine mid/large cap and is NOT admitted.
+# Ceiling höjd 2026-09-08 (Jonas): Nasdaq "Small Cap" (~SEK 1.7bn) var för snävt
+# för ett användbart universum — de flesta explosiva nordiska rörelserna sker i
+# spannet upp till ~SEK 5bn. Konventionen är inte helig; scope är "nordiska
+# småbolag" brett. Huvudanalysen kan fortfarande filtrera hårdare i efterhand.
 market_cap_sek:
   min: 50_000_000
-  max: 1_700_000_000          # ~ EUR 150m, Nasdaq Small Cap ceiling
+  max: 5_000_000_000          # höjt från 1.7bn (2026-09-08)
 
 # Cap segment is tagged PER OBSERVATION (`observation.cap_segment_at_entry`) from
 # the point-in-time market cap on that observation's date:
@@ -40,7 +42,7 @@ market_cap_sek:
 # out of small-cap without contaminating the main analysis, which filters to
 # cap_segment_at_entry = 'small'.
 cap_segments:
-  small_max_market_cap_sek: 1_700_000_000
+  small_max_market_cap_sek: 5_000_000_000   # höjt från 1.7bn (2026-09-08), följer taket ovan
   retain_after_growth: true
   graduate_after_months_mid: null      # null = track indefinitely, just tag
 
@@ -61,6 +63,7 @@ dedup:
 min_history_trading_days: 252
 
 # Study window for experiment E1.
-study_start: 2020-01-01
-study_end: 2026-06-30
+# study_end: null  => panelen körs fram till senaste handelsdag varje gång.
+study_start: 2022-01-01
+study_end: null
 observation_frequency: weekly           # Friday close

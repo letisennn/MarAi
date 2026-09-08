@@ -45,7 +45,7 @@ def build_universe(con: duckdb.DuckDBPyConnection) -> int:
     price_floor = float(cfg["price_floor_local"])
     min_hist = int(cfg["min_history_trading_days"])
     start = pd.Timestamp(cfg["study_start"])
-    end = pd.Timestamp(cfg["study_end"])
+    end = pd.Timestamp(cfg["study_end"]) if cfg.get("study_end") else pd.Timestamp.today().normalize()
 
     px = con.execute(
         "SELECT security_id, session_date, close_local, market_cap_sek, turnover_sek "

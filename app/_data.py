@@ -780,3 +780,395 @@ def e1_results(eid: int) -> pd.DataFrame:
         "is_out_of_sample, params FROM experiment_result WHERE experiment_id = ?",
         (eid,),
     )
+
+
+# --------------------------------------------------------------------------- #
+# tolkning i klartext — en färdig slutsats per bolag
+# --------------------------------------------------------------------------- #
+
+
+def _g(feats: dict, name: str):
+    v = feats.get(name)
+    return None if _is_missing(v) else float(v)
+
+
+def _pct(v, plus: bool = True) -> str:
+    if v is None:
+        return "–"
+    return f"{v * 100:+.0f} %" if plus else f"{v * 100:.0f} %"
+
+
+def _ctx_1y(fhist: pd.DataFrame, name: str, value) -> str:
+    """Var ligger dagens värde mot bolagets senaste ~52 veckor?"""
+    if value is None or fhist.empty or name not in fhist.columns:
+        return ""
+    s = pd.to_numeric(fhist[name], errors="coerce").dropna().tail(52)
+    if len(s) < 12:
+        return ""
+    pct = float((s < value).mean())
+    if pct >= 0.92:
+        return "det högsta på ett år"
+    if pct <= 0.08:
+        return "det lägsta på ett år"
+    if pct >= 0.75:
+        return "högt för bolaget"
+    if pct <= 0.25:
+        return "lågt för bolaget"
+    return ""
+
+
+@st.cache_data(ttl=60)
+def verdict(sid: int, weeks: int = 8) -> dict:
+    """En färdigtolkad slutsats för ett bolag: kategori, en mening, varför, emot,
+    och den siffra som betyder något. Preliminär och ovaliderad — regelvikter och
+    trösklar är handsatta. Beskriver nuläget mot historisk frekvens, ingen prognos.
+    """
+    obs_date, feats = security_features_latest(sid)
+    if not feats:
+        return {
+            "kategori": "Utanför universumet",
+            "ikon": "•",
+            "slutsats": (
+                "Bolaget har inte funnits i universumet under perioden (för litet, "
+                "för lågt handlat, för kort historik, uppköpt eller i konkurs). "
+                "Inga mätningar att tolka — bara kurshistoriken längre ner."
+            ),
+            "darfor": [],
+            "emot": [],
+            "nyckeltal": None,
+            "as_of": obs_date,
+        }
+
+    fhist = security_feature_history(sid)
+    hist = security_signal_history(sid)
+    stats = rule_outcome_stats()
+    brm = base_rate_map()
+    base90 = brm.get("90d")
+
+    r1m, r3m, r12m = _g(feats, "ret_1m"), _g(feats, "ret_3m"), _g(feats, "ret_12m")
+    dist = _g(feats, "dist_52w_high")
+    rvol = _g(feats, "rvol_5_60")
+    vacc = _g(feats, "vol_accel")
+    rv20 = _g(feats, "rv_20d")
+    brk = _g(feats, "breakout_20d")
+    sacc, facc = _g(feats, "search_accel"), _g(feats, "forum_accel")
+    slz = _g(feats, "search_level_z")
+
+    # vilka regler lyste de senaste `weeks` veckorna
+    recent_rules: list[str] = []
+    last_fire = None
+    if not hist.empty and obs_date is not None:
+        rd = q("SELECT DISTINCT obs_date FROM observation ORDER BY obs_date DESC LIMIT ?", (weeks,))
+        cutoff = pd.to_datetime(rd["obs_date"]).min() if not rd.empty else None
+        h = hist.assign(_d=pd.to_datetime(hist["as_of_date"]))
+        if cutoff is not None:
+            h = h[h["_d"] >= cutoff]
+        recent_rules = list(dict.fromkeys(h.sort_values("_d")["rule"].tolist()))
+        if not h.empty:
+            last_fire = h["_d"].max()
+
+    def _rule_number(rk: str) -> str | None:
+        if stats.empty:
+            return None
+        rs = stats[(stats["rule"] == rk) & (stats["horizon"] == "90d")]
+        if rs.empty or int(rs["n"].iloc[0]) < 20:
+            return None
+        hit = float(rs["hit_rate"].iloc[0])
+        titel = RULE_SV.get(rk, {}).get("titel", rk)
+        base_txt = f" (normalt {_pct(base90, plus=False)})" if base90 else ""
+        return (
+            f'När mönstret "{titel}" lyst tidigare har en uppgång på minst +50 % inom '
+            f"~4 månader följt i {hit * 100:.0f} % av fallen{base_txt}. "
+            "Beskrivande historik, inte en prognos."
+        )
+
+    generic_number = (
+        f"Referens: ett litet bolag i universumet når +50 % inom ~4 månader i "
+        f"{_pct(base90, plus=False)} av alla veckor. Ingen bekräftad signal höjer "
+        "oddsen för det här bolaget just nu."
+        if base90 else None
+    )
+
+    def vol_line() -> str | None:
+        if rvol is None:
+            return None
+        c = _ctx_1y(fhist, "rvol_5_60", rvol)
+        tail = f", {c}" if c else ""
+        trend = ""
+        if vacc is not None:
+            trend = " och stigande" if vacc > 0 else " och fallande" if vacc < 0 else ""
+        return f"Handeln ligger {pct_vs_normal(rvol)}{trend}{tail}."
+
+    def dist_line() -> str | None:
+        if dist is None:
+            return None
+        if dist >= -0.03:
+            return "Kursen står vid sitt högsta på 52 veckor."
+        if dist >= -0.10:
+            return f"Kursen är {_pct(abs(dist), plus=False)} under årshögsta — inom räckhåll."
+        if dist >= -0.30:
+            return f"Kursen är {_pct(abs(dist), plus=False)} under årshögsta."
+        return f"Kursen är långt under årshögsta ({_pct(abs(dist), plus=False)} ned)."
+
+    def trend_line() -> str | None:
+        if r3m is None:
+            return None
+        parts = [f"{_pct(r3m)} på 3 månader"]
+        if r12m is not None:
+            parts.append(f"{_pct(r12m)} på 12 månader")
+        return "Kursutveckling: " + ", ".join(parts) + "."
+
+    def attn_line() -> str | None:
+        bits = []
+        if sacc is not None and sacc >= 0.12:
+            bits.append(f"sökintresset ökar ({_pct(sacc)} mot en månad sedan)")
+        if facc is not None and facc >= 0.12:
+            bits.append(f"forumaktiviteten ökar ({_pct(facc)})")
+        if slz is not None and slz >= 1.5 and not bits:
+            bits.append("sökintresset ligger högt för bolaget")
+        if not bits:
+            return None
+        return "Uppmärksamhet: " + " och ".join(bits) + ". (Syntetisk attention-data.)"
+
+    vol_rising = (vacc is not None and vacc > 0) or (rvol is not None and rvol >= 1.2)
+    exploded_now = (rvol is not None and rvol >= 2.5 and r1m is not None and r1m >= 0.15)
+    calm_price = r1m is not None and -0.06 <= r1m <= 0.15
+
+    # ---- beslutsträd, första träff vinner --------------------------------
+    kat = ikon = slutsats = None
+    darfor: list[str] = []
+    emot: list[str] = []
+    nyckeltal = generic_number
+
+    if ("rule1" in recent_rules or "rule2" in recent_rules) or exploded_now:
+        kat, ikon = "Utbrott pågår", "🚀"
+        slutsats = (
+            "Rör sig kraftigt just nu på hög volym — utbrottet har redan börjat. "
+            "Det här är inte ett tidigt läge."
+        )
+        darfor = [x for x in (
+            f"Kursen är {_pct(r1m)} den senaste månaden." if r1m is not None else None,
+            vol_line(),
+            "Ny 20-dagarshögsta noterad den här veckan." if brk and brk >= 0.5 else None,
+            dist_line(),
+        ) if x]
+        emot = [
+            "Går man in mitt i ett utbrott är en stor del av rörelsen ofta redan gjord; "
+            "bakslag på 15–30 % är vanliga.",
+        ]
+        if r3m is not None and r3m >= 0.6:
+            emot.append(f"Bolaget har redan gått {_pct(r3m)} på tre månader.")
+        rk = "rule1" if "rule1" in recent_rules else ("rule2" if "rule2" in recent_rules else None)
+        nyckeltal = (_rule_number(rk) if rk else None) or generic_number
+
+    elif dist is not None and dist >= -0.06 and (r3m or 0) > 0 and vol_rising and (r1m or 0) < 0.20:
+        kat, ikon = "Nära utbrott", "⚡"
+        slutsats = (
+            "Står precis under årshögsta med stigande handel — ett klassiskt läge strax "
+            "före ett utbrott. Inget utbrott är bekräftat än."
+        )
+        darfor = [x for x in (dist_line(), trend_line(), vol_line(), attn_line()) if x]
+        emot = [
+            "Nära årshögsta vänder ungefär lika ofta ner som det bryter upp. Utan att "
+            "volymen och intresset fortsätter öka är det bara en prisnivå.",
+        ]
+        nyckeltal = _rule_number("rule3") or generic_number
+
+    elif vol_rising and calm_price and dist is not None and -0.38 <= dist <= -0.07:
+        kat, ikon = "Under uppbyggnad", "🌱"
+        slutsats = (
+            "Handeln tilltar medan kursen fortfarande är lugn och en bit under årshögsta "
+            "— mönstret som ibland föregår en större rörelse. Obevisat, en hypotes vi testar."
+        )
+        darfor = [x for x in (
+            vol_line(),
+            f"Kursen är samtidigt lugn ({_pct(r1m)} senaste månaden)." if r1m is not None else None,
+            dist_line(),
+            attn_line(),
+        ) if x]
+        emot = [
+            "Ökad volym utan att kursen följer med leder oftast ingenstans. Det här är "
+            "inte en bekräftad signal — det är ett mönster under test.",
+        ]
+        nyckeltal = generic_number
+
+    elif r3m is not None and r3m >= 0.6 and dist is not None and dist >= -0.04:
+        kat, ikon = "Överhettad", "🔥"
+        slutsats = (
+            f"Har redan gått {_pct(r3m)} på tre månader och står vid toppen. Ett nytt "
+            "köp härifrån har historiskt sämre odds än risken."
+        )
+        darfor = [x for x in (
+            trend_line(),
+            "Kursen står vid 52-veckors högsta.",
+            f"Rörligheten är hög ({_pct(rv20, plus=False)} i årstakt)." if rv20 is not None else None,
+        ) if x]
+        emot = [
+            "Starka trender pågår ofta längre än man tror. Det här är ingen säljsignal — "
+            "bara att ett nytt köp på den här nivån har dålig historik.",
+        ]
+        nyckeltal = generic_number
+
+    elif r12m is not None and r12m <= -0.30 and (r1m or 0) > 0.05 and vol_rising:
+        kat, ikon = "Utbombad — möjlig vändning", "🩹"
+        slutsats = (
+            "Har fallit tungt på ett år, men den senaste månaden är positiv på stigande "
+            "volym — ett tidigt tecken på möjlig vändning. Osäkert."
+        )
+        darfor = [x for x in (
+            f"Ned {_pct(r12m)} på 12 månader men {_pct(r1m)} den senaste månaden." if r1m is not None else None,
+            vol_line(),
+            dist_line(),
+            attn_line(),
+        ) if x]
+        emot = [
+            "De flesta studsar i en nedtrend rinner ut i sanden. Vändningen är bekräftad "
+            "först när högre bottnar och toppar byggs.",
+        ]
+        nyckeltal = generic_number
+
+    elif r3m is not None and r3m <= -0.15 and (r1m or 0) <= 0 and (dist or 0) <= -0.25:
+        kat, ikon = "Fallande — ingen vändning", "📉"
+        slutsats = (
+            "Nedtrend utan tecken på vändning: fallande kurs, ingen ökad köpvolym, "
+            "långt under årshögsta."
+        )
+        darfor = [x for x in (trend_line(), dist_line(), vol_line()) if x]
+        emot = [
+            "Utbombade bolag kan vända snabbt när humöret skiftar — bevaka för stigande "
+            "volym som första tecken.",
+        ]
+        nyckeltal = generic_number
+
+    else:
+        kat, ikon = "Ingen signal", "•"
+        slutsats = (
+            "Rör sig i sidled utan något av de mönster vi letar efter. Inget att agera på."
+        )
+        darfor = [x for x in (trend_line(), vol_line(), dist_line()) if x]
+        emot = ["Bevaka om handeln börjar ticka upp — det är oftast det första som händer."]
+        nyckeltal = generic_number
+
+    return {
+        "kategori": kat,
+        "ikon": ikon,
+        "slutsats": slutsats,
+        "darfor": darfor,
+        "emot": emot,
+        "nyckeltal": nyckeltal,
+        "as_of": obs_date,
+        "fired_recently": recent_rules,
+        "last_fire": None if last_fire is None else last_fire.date(),
+    }
+
+
+@st.cache_data(ttl=60)
+def movers(window: str = "1m", segment: str = "small", limit: int = 25) -> pd.DataFrame:
+    """Största kursrörelserna i universumet över ett fönster, störst först.
+
+    window: '1w' -> ret_1w, '1m' -> ret_1m, '3m' -> ret_3m, '12m' -> ret_12m.
+    Visar bolagets senaste observation. Beskrivande, ingen prognos.
+    """
+    feat = {"1w": "ret_1w", "1m": "ret_1m", "3m": "ret_3m", "12m": "ret_12m"}.get(window, "ret_1m")
+    sql = f"""
+    WITH last_obs AS (SELECT security_id, max(obs_date) AS obs_date FROM observation GROUP BY 1),
+    orw AS (
+        SELECT o.security_id, o.obs_id, o.obs_date, o.cap_segment_at_entry AS segment
+        FROM observation o JOIN last_obs l
+          ON l.security_id = o.security_id AND l.obs_date = o.obs_date
+    ),
+    f AS (
+        SELECT obs_id,
+            max(value) FILTER (WHERE feature_name = '{feat}')       AS move,
+            max(value) FILTER (WHERE feature_name = 'ret_1m')       AS ret_1m,
+            max(value) FILTER (WHERE feature_name = 'ret_3m')       AS ret_3m,
+            max(value) FILTER (WHERE feature_name = 'dist_52w_high') AS dist_52w_high,
+            max(value) FILTER (WHERE feature_name = 'rvol_5_60')    AS rvol_5_60,
+            max(value) FILTER (WHERE feature_name = 'vol_accel')    AS vol_accel
+        FROM feature_panel WHERE obs_id IN (SELECT obs_id FROM orw)
+        GROUP BY obs_id
+    )
+    SELECT s.security_id, s.name, s.sector, orw.segment, orw.obs_date,
+           f.move, f.ret_1m, f.ret_3m, f.dist_52w_high, f.rvol_5_60, f.vol_accel
+    FROM orw JOIN security s USING (security_id) JOIN f ON f.obs_id = orw.obs_id
+    WHERE f.move IS NOT NULL
+    ORDER BY f.move DESC
+    """
+    df = q(sql)
+    if segment in ("small", "mid"):
+        df = df[df["segment"] == segment]
+    return df.head(limit).reset_index(drop=True)
+
+
+@st.cache_data(ttl=60)
+def move_precursor(sid: int, weeks_before: int = 4) -> pd.DataFrame:
+    """Hur såg mätvärdena ut veckorna INNAN bolagets senaste observation.
+
+    Svarar på "fanns det något att se i förväg". Tar de sista `weeks_before`+1
+    observationerna och visar volym, avstånd till årshögsta, kursutveckling och
+    om något förregistrerat mönster lyste den veckan.
+    """
+    fh = security_feature_history(sid)
+    if fh.empty:
+        return pd.DataFrame()
+    cols = [c for c in ["obs_date", "ret_1w", "ret_1m", "rvol_5_60", "vol_accel",
+                        "dist_52w_high", "search_accel", "forum_accel"] if c in fh.columns]
+    tail = fh[cols].tail(weeks_before + 1).copy()
+    sh = security_signal_history(sid)
+    fired = {}
+    if not sh.empty:
+        s = sh.assign(_d=pd.to_datetime(sh["as_of_date"]))
+        for d, grp in s.groupby("_d"):
+            fired[pd.Timestamp(d).normalize()] = ", ".join(sorted(grp["rule"].unique()))
+    tail["monster_lyste"] = tail["obs_date"].dt.normalize().map(fired).fillna("—")
+    return tail.reset_index(drop=True)
+
+
+@st.cache_data(ttl=60)
+def historical_breakouts(min_fwd_20: float = 0.25) -> dict:
+    """Panelbrett: av alla veckoobservationer som FÖLJDES av en uppgång på minst
+    ``min_fwd_20`` inom 20 handelsdagar — hur ofta syntes förhöjd volym eller
+    stigande handel redan samma vecka? Rent beskrivande, svarar på om det fanns
+    något mätbart att se i förväg.
+    """
+    df = q(
+        """
+        WITH mv AS (
+            SELECT o.obs_id
+            FROM observation o JOIN target_panel tp USING (obs_id)
+            WHERE o.cap_segment_at_entry = 'small'
+              AND tp.target_name = 'fwd_ret_20' AND tp.value >= ?
+        ),
+        f AS (
+            SELECT obs_id,
+                max(value) FILTER (WHERE feature_name = 'rvol_5_60') AS rvol,
+                max(value) FILTER (WHERE feature_name = 'vol_accel') AS vacc,
+                max(value) FILTER (WHERE feature_name = 'dist_52w_high') AS dist
+            FROM feature_panel WHERE obs_id IN (SELECT obs_id FROM mv)
+            GROUP BY obs_id
+        )
+        SELECT
+            count(*)                                                  AS n,
+            avg(CASE WHEN rvol >= 1.5 THEN 1.0 ELSE 0.0 END)          AS p_high_vol,
+            avg(CASE WHEN vacc > 0 THEN 1.0 ELSE 0.0 END)             AS p_vol_rising,
+            avg(CASE WHEN dist >= -0.10 THEN 1.0 ELSE 0.0 END)        AS p_near_high
+        FROM f
+        """,
+        (min_fwd_20,),
+    )
+    base = q(
+        """
+        WITH f AS (
+            SELECT obs_id,
+                max(value) FILTER (WHERE feature_name = 'rvol_5_60') AS rvol
+            FROM feature_panel
+            WHERE obs_id IN (SELECT obs_id FROM observation WHERE cap_segment_at_entry = 'small')
+            GROUP BY obs_id
+        )
+        SELECT avg(CASE WHEN rvol >= 1.5 THEN 1.0 ELSE 0.0 END) AS p_high_vol_all FROM f
+        """
+    )
+    out = {} if df.empty else df.iloc[0].to_dict()
+    out["p_high_vol_all"] = None if base.empty else float(base.iloc[0]["p_high_vol_all"])
+    out["threshold"] = min_fwd_20
+    return out
