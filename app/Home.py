@@ -1,8 +1,9 @@
-"""Marc AI — internt research-verktyg (v0.1 marknadsbaslinje).
+"""Noel AI — internt research-verktyg för nordiska småbolag.
 
-Startfil för Streamlit. Sätter upp navigationen; varje sida ligger i ``app/views/``.
-Ingen affärslogik här eller i sidorna — allt kommer från paketet ``marc`` via
-``app/_data.py``.
+Market discovery / market psychology: mäter förändringar i uppmärksamhet, volym
+och momentum, placerar bolag i en hype-cykel och jämför nuläget med historiska
+analoger. Startfil för Streamlit — ingen affärslogik här eller i sidorna, allt
+kommer från paketet ``marc`` via ``app/_data.py``.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ import os
 
 import streamlit as st
 
-st.set_page_config(page_title="Marc AI", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Noel AI", page_icon="📡", layout="wide")
 
 from _data import data_source, db_exists, last_signal_date, latest_obs_date  # noqa: E402
 from _gate import require_password  # noqa: E402
@@ -24,7 +25,7 @@ if not db_exists():
     # data; faller tillbaka till "synthetic" om nätet/Yahoo inte går att nå).
     # MARC_AUTOBUILD="0" stänger av auto-bygget helt.
     if os.environ.get("MARC_AUTOBUILD", "1") != "0":
-        st.title("Marc AI")
+        st.title("Noel AI")
         import sys
         from pathlib import Path
 
@@ -54,14 +55,14 @@ if not db_exists():
                 st.stop()
         st.cache_data.clear()
         st.rerun()
-    st.title("Marc AI")
+    st.title("Noel AI")
     st.warning("Databasen är inte byggd ännu. Kör det här i en terminal och ladda om sidan:")
     st.code("uv run marc pipeline --source yfinance --reset", language="bash")
     st.stop()
 
 with st.sidebar:
-    st.markdown("### Marc AI")
-    st.caption("Internt research-verktyg · nordiska småbolag")
+    st.markdown("### 📡 Noel AI")
+    st.caption("Market discovery · nordiska småbolag")
     if data_source() == "synthetic":
         st.caption(
             "⚠️ **Syntetisk data** – inte marknadsdata. Alla siffror är exempel "
@@ -73,13 +74,28 @@ with st.sidebar:
         st.caption(f"Senaste datavecka: **{d:%Y-%m-%d}**")
     if ls is not None:
         st.caption(f"Senaste signalvecka: **{ls:%Y-%m-%d}**")
+    st.caption(
+        "Experimentellt researchverktyg. Ingenting här är validerat eller "
+        "investeringsrådgivning."
+    )
 
-pages = [
-    st.Page("views/start.py", title="Start", icon="🏠", default=True),
-    st.Page("views/bolag.py", title="Bolag", icon="📋"),
-    st.Page("views/bolag_detalj.py", title="Bolag i detalj", icon="🔎"),
-    st.Page("views/rorelser.py", title="Rörelser & utbrott", icon="📈"),
-    st.Page("views/signaler.py", title="Signaler", icon="🚨"),
-    st.Page("views/forskning.py", title="Forskning (E1)", icon="🧪"),
-]
-st.navigation(pages).run()
+nav = {
+    "Radar": [
+        st.Page("views/radar.py", title="Market Radar", icon="📡", default=True),
+        st.Page("views/dagens.py", title="Dagens upptäckter", icon="🌅"),
+    ],
+    "Bolag": [
+        st.Page("views/bolag.py", title="Alla bolag", icon="📋"),
+        st.Page("views/bolag_detalj.py", title="Bolag i detalj", icon="🔎"),
+        st.Page("views/rorelser.py", title="Rörelser & utbrott", icon="📈"),
+    ],
+    "Forskning": [
+        st.Page("views/signal_lab.py", title="Signal Lab", icon="🧪"),
+        st.Page("views/signaler.py", title="Signaler", icon="🚨"),
+        st.Page("views/forskning.py", title="Forskning (E1)", icon="📚"),
+    ],
+    "Noel": [
+        st.Page("views/performance.py", title="Performance", icon="📊"),
+    ],
+}
+st.navigation(nav).run()

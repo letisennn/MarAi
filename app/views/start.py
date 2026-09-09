@@ -6,10 +6,10 @@ import streamlit as st
 
 from _data import EVENT_CODE_SV, base_rates, data_source, kpis, pipeline_status
 
-st.title("Marc AI")
+st.title("📡 Noel AI")
 
 st.markdown(
-    "Marc AI mäter **förändringar i marknadens beteende** kring nordiska "
+    "Noel AI mäter **förändringar i marknadens beteende** kring nordiska "
     "småbolag — handelsvolym, kursmomentum, rörlighet, hur nära årshögsta en "
     "aktie handlas — och testar statistiskt om de förändringarna bär information "
     "om **framtida kursrörelser**.\n\n"
@@ -46,7 +46,7 @@ with a:
 with b:
     st.markdown("#### 🔎 Bolag i detalj")
     st.write(
-        "Ett bolag i taget: kursgraf, vad Marc mäter just nu i klartext, och "
+        "Ett bolag i taget: kursgraf, vad Noel mäter just nu i klartext, och "
         "när förregistrerade mönster har lyst tidigare."
     )
     st.page_link("views/bolag_detalj.py", label="Öppna Bolag i detalj", icon="🔎")
@@ -74,7 +74,7 @@ with st.expander("Så läser du verktyget (ordlista)"):
         "framåt. Används bara för att utvärdera mått — matas aldrig tillbaka in.\n"
         "- **Signal / regel** — ett förregistrerat villkor. Att en regel \"lyser\" "
         "betyder att bolaget matchar villkoret — inget mer.\n"
-        "- **Marc-signal** — en **preliminär** poäng 0–100 per aktie som väger "
+        "- **Discovery Score** — en **experimentell** poäng 0–100 per aktie som väger "
         "momentum, läge mot årshögsta, handel och mönster. Vikterna är handsatta "
         "och *ovaliderade* — ett arbetsverktyg, inte ett facit. Byts mot en "
         "statistiskt/ML-härledd vikt när E1 säger sitt.\n"

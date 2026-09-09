@@ -32,7 +32,7 @@ def require_password() -> None:
     if st.session_state.get("_auth_ok"):
         return
 
-    st.title("Marc AI")
+    st.title("Noel AI")
     st.caption("Internt verktyg. Ange lösenordet för att fortsätta.")
     pw = st.text_input("Lösenord", type="password")
     if pw and hmac.compare_digest(pw, secret):

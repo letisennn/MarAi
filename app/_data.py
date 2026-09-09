@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 import duckdb
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -1192,3 +1193,284 @@ def historical_breakouts(min_fwd_20: float = 0.25) -> dict:
     out["p_high_vol_all"] = None if base.empty else float(base.iloc[0]["p_high_vol_all"])
     out["threshold"] = min_fwd_20
     return out
+
+
+# --------------------------------------------------------------------------- #
+# Discovery — marknadsfas, radar, analoger, daily picks, signal lab
+# --------------------------------------------------------------------------- #
+
+import marc.discovery as _disc  # noqa: E402
+
+ANALOGUE_FEATURES = _disc.ANALOGUE_FEATURES
+ANALOGUE_FEATURES_ATTENTION = _disc.ANALOGUE_FEATURES_ATTENTION
+_analogue_outcomes = _disc.analogue_outcomes
+_classify_phase = _disc.classify_phase
+_find_analogues = _disc.find_analogues
+
+PHASE_SV = {
+    "low": "Låg uppmärksamhet",
+    "early": "Tidig upptäckt",
+    "accelerating": "Accelererande",
+    "hype": "Snabb hype",
+    "mass": "Bred uppmärksamhet",
+    "exhaustion": "Avtagande hype",
+    "reversal": "Möjlig vändning ned",
+    "unknown": "Okänt läge",
+}
+
+_ANALOGUE_HZ_SV = {
+    5: "+5 dagar", 20: "+20 dagar", 30: "+30 dagar",
+    60: "+60 dagar", 90: "+90 dagar", 180: "+180 dagar",
+}
+
+
+@st.cache_data(ttl=60)
+def security_phase(sid: int) -> dict:
+    """Marknadsfas för ett bolags senaste observation (beskrivande, experimentell)."""
+    _, feats = security_features_latest(sid)
+    p = _classify_phase(feats or {})
+    return {"key": p.key, "idx": p.idx, "label": p.label, "marker": p.marker, "note": p.note}
+
+
+@st.cache_data(ttl=60)
+def market_radar(segment: str = "small", weeks: int = 8) -> pd.DataFrame:
+    """En rad per bolag i universumet: discovery-score, fas, acceleration, volym, momentum.
+
+    Radarn prioriterar FÖRÄNDRINGSTAKT (attention-/volymacceleration, momentum)
+    framför absolut nivå (spec-brief §11).
+    """
+    peers = peer_features_latest()
+    if peers.empty:
+        return pd.DataFrame()
+    rmap = _rules_by_security(weeks)
+    scores = all_scores(weeks).set_index("security_id")
+    meta = q(
+        """
+        WITH last_obs AS (SELECT security_id, max(obs_date) AS obs_date FROM observation GROUP BY 1)
+        SELECT s.security_id, s.name, s.sector, s.country,
+               o.obs_date, o.cap_segment_at_entry AS segment, o.market_cap_sek
+        FROM observation o JOIN last_obs l
+          ON l.security_id = o.security_id AND l.obs_date = o.obs_date
+        JOIN security s ON s.security_id = o.security_id
+        """
+    ).set_index("security_id")
+
+    rows = []
+    for sid, fr in peers.iterrows():
+        if sid not in meta.index:
+            continue
+        f = fr.to_dict()
+        m = meta.loc[sid]
+        p = _classify_phase(f)
+        sc = scores.loc[sid] if sid in scores.index else None
+        rows.append({
+            "security_id": int(sid),
+            "Bolag": m["name"],
+            "Discovery": None if sc is None else float(sc["score"]),
+            "Fas": f"{p.marker} {p.label}",
+            "phase_idx": p.idx,
+            "Attention-accel": _num(f.get("search_accel")),
+            "Sök-nivå (z)": _num(f.get("search_level_z")),
+            "Volym mot normalt": (_num(f.get("rvol_5_60")) - 1.0) if f.get("rvol_5_60") is not None else None,
+            "Volym ökar": _num(f.get("vol_accel")),
+            "Kurs 1 mån": _num(f.get("ret_1m")),
+            "Kurs 3 mån": _num(f.get("ret_3m")),
+            "Från årshögsta": _num(f.get("dist_52w_high")),
+            "Mönster": int(rmap.get(sid, 0)),
+            "Sektor": m["sector"],
+            "segment": m["segment"],
+            "obs_date": m["obs_date"],
+        })
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    if segment in ("small", "mid"):
+        df = df[df["segment"] == segment]
+    return df.sort_values(["Discovery"], ascending=False, na_position="last").reset_index(drop=True)
+
+
+def _num(v):
+    return None if v is None or (isinstance(v, float) and pd.isna(v)) else float(v)
+
+
+@st.cache_data(ttl=60)
+def analogues(sid: int, k: int = 40, include_attention: bool = False) -> dict:
+    """Historiska analoger till ett bolags nuläge + deras faktiska forward-utfall
+    jämfört med en kontrollgrupp. Point-in-time: frågevektorn använder bara
+    features kända vid observationen; grannar ligger strikt före den.
+    """
+    con = get_con()
+    feats = ANALOGUE_FEATURES_ATTENTION if include_attention else ANALOGUE_FEATURES
+    nb = _find_analogues(con, sid, k=k, feature_names=feats, exclude_query_security=True)
+    if nb.empty:
+        return {"n_analogues": 0}
+    out = _analogue_outcomes(con, nb, control_segment="small")
+    names = q(
+        "SELECT security_id, name FROM security WHERE security_id IN "
+        f"({','.join(str(int(x)) for x in nb['security_id'].unique())})"
+    ).set_index("security_id")["name"].to_dict()
+    nb_disp = nb.assign(Bolag=nb["security_id"].map(names))
+    neigh = nb_disp[["Bolag", "obs_date", "distance"]].rename(
+        columns={"obs_date": "Datum", "distance": "Avstånd"}
+    ).reset_index(drop=True)
+    neigh.attrs = {}  # annars försöker st.dataframe serialisera en Timestamp i attrs
+    out["neighbours"] = neigh
+    out["features_used"] = list(nb.attrs.get("features_used", feats))
+    out["include_attention"] = include_attention
+    qd = nb.attrs.get("query_date")
+    out["query_date"] = qd.date().isoformat() if hasattr(qd, "date") else qd
+    return out
+
+
+@st.cache_data(ttl=60)
+def daily_discoveries(n: int = 8, segment: str = "small") -> pd.DataFrame:
+    """Dagens kandidater: högst experimentell discovery-score bland bolag i en
+    tidig/accelererande fas. Rankningen är EXPERIMENTELL — ovaliderad score.
+    """
+    radar = market_radar(segment=segment)
+    if radar.empty:
+        return radar
+    early = radar[radar["phase_idx"].isin([2, 3, 4])].copy()
+    if early.empty:
+        early = radar.copy()
+    return early.sort_values("Discovery", ascending=False, na_position="last").head(n).reset_index(drop=True)
+
+
+_SIGNAL_FEATURES_SV = {
+    "search_accel": "Attention-acceleration (sök)",
+    "forum_accel": "Forum-acceleration",
+    "news_rate_z": "Nyhetsintensitet (z)",
+    "rvol_5_60": "Relativ volym (5d/60d)",
+    "vol_accel": "Volymacceleration",
+    "ret_1m": "Kursmomentum 1 mån",
+    "ret_3m": "Kursmomentum 3 mån",
+    "dist_52w_high": "Avstånd till årshögsta",
+    "breakout_20d": "Ny 20-dagarshögsta",
+}
+_SIGNAL_TARGETS_SV = {
+    "up_10_5d": "+10 % inom 5 dagar",
+    "up_25_20d": "+25 % inom 20 dagar",
+    "up_50_30d": "+50 % inom 30 dagar",
+    "up_50_60d": "+50 % inom 60 dagar",
+    "up_50_90d": "+50 % inom 90 dagar",
+    "up_100_180d": "+100 % inom 180 dagar",
+}
+_TARGET_RET = {
+    "up_10_5d": "fwd_ret_5", "up_25_20d": "fwd_ret_20", "up_50_30d": "fwd_ret_30",
+    "up_50_60d": "fwd_ret_60", "up_50_90d": "fwd_ret_90", "up_100_180d": "fwd_ret_180",
+}
+
+
+@st.cache_data(ttl=60)
+def signal_lab(
+    feature: str,
+    op: str,
+    threshold: float,
+    target: str,
+    segment: str = "small",
+    start: str | None = None,
+    end: str | None = None,
+) -> dict:
+    """Testa en enkel signal mot en target: signalgrupp vs kontrollgrupp,
+    hit rate, medianavkastning, relativ lift, bootstrap-KI. Beskrivande — säger
+    inte 'statistiskt signifikant' om testet inte visar det.
+    """
+    retcol = _TARGET_RET.get(target)
+    seg_clause = "AND o.cap_segment_at_entry = ?" if segment in ("small", "mid") else ""
+    params: list = [feature, target, retcol]
+    if segment in ("small", "mid"):
+        params.append(segment)
+    date_clause = ""
+    if start:
+        date_clause += " AND o.obs_date >= ?"
+        params.append(start)
+    if end:
+        date_clause += " AND o.obs_date <= ?"
+        params.append(end)
+
+    df = q(
+        f"""
+        WITH f AS (
+            SELECT o.obs_id, o.obs_date,
+                max(CASE WHEN fp.feature_name = ? THEN fp.value END) AS feat,
+                max(CASE WHEN tp.target_name = ? THEN tp.value END) AS ev,
+                max(CASE WHEN tp.target_name = ? THEN tp.value END) AS ret
+            FROM observation o
+            LEFT JOIN feature_panel fp USING (obs_id)
+            LEFT JOIN target_panel tp USING (obs_id)
+            WHERE 1=1 {seg_clause} {date_clause}
+            GROUP BY o.obs_id, o.obs_date
+        )
+        SELECT feat, ev, ret FROM f WHERE feat IS NOT NULL AND ev IS NOT NULL
+        """,
+        tuple(params),
+    )
+    if df.empty:
+        return {"n_total": 0}
+
+    mask = df["feat"] >= threshold if op == ">=" else df["feat"] <= threshold
+    sig, ctrl = df[mask], df[~mask]
+    n_sig = int(len(sig))
+    base = float(df["ev"].mean())
+    hit = float(sig["ev"].mean()) if n_sig else None
+    ctrl_hit = float(ctrl["ev"].mean()) if len(ctrl) else None
+
+    # bootstrap-KI på signalgruppens hit rate
+    ci = None
+    if n_sig >= 10:
+        rng = np.random.default_rng(12345)
+        vals = sig["ev"].to_numpy(dtype=float)
+        boot = [rng.choice(vals, size=len(vals), replace=True).mean() for _ in range(2000)]
+        ci = (float(np.quantile(boot, 0.025)), float(np.quantile(boot, 0.975)))
+
+    return {
+        "n_total": int(len(df)),
+        "n_signal": n_sig,
+        "n_control": int(len(ctrl)),
+        "base_rate": base,
+        "hit_rate": hit,
+        "control_hit_rate": ctrl_hit,
+        "lift": (hit / base) if hit is not None and base else None,
+        "median_ret_signal": float(sig["ret"].dropna().median()) if n_sig else None,
+        "mean_ret_signal": float(sig["ret"].dropna().mean()) if n_sig else None,
+        "median_ret_control": float(ctrl["ret"].dropna().median()) if len(ctrl) else None,
+        "ci95_hit": ci,
+        "feature": feature,
+        "op": op,
+        "threshold": threshold,
+        "target": target,
+    }
+
+
+@st.cache_data(ttl=30)
+def discovery_log() -> pd.DataFrame:
+    try:
+        return q(
+            """
+            SELECT d.discovery_id, d.as_of_date, s.name AS bolag, d.source,
+                   d.discovery_score, d.phase_key, d.entry_price_sek, d.reason, d.created_at
+            FROM discovery d JOIN security s USING (security_id)
+            ORDER BY d.as_of_date DESC, d.discovery_score DESC
+            """
+        )
+    except Exception:  # noqa: BLE001 - tabellen kan saknas i äldre DB
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=30)
+def discovery_performance() -> dict:
+    log = discovery_log()
+    if log.empty:
+        return {"n": 0}
+    try:
+        out = q(
+            """
+            SELECT horizon, count(*) n,
+                   avg(realized_return) mean_ret, median(realized_return) median_ret,
+                   avg(CASE WHEN realized_return > 0 THEN 1.0 ELSE 0.0 END) win_rate
+            FROM discovery_outcome GROUP BY horizon
+            """
+        )
+    except Exception:  # noqa: BLE001
+        out = pd.DataFrame()
+    return {"n": int(len(log)), "by_horizon": out}

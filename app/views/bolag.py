@@ -7,12 +7,12 @@ import streamlit as st
 
 from _data import all_scores, latest_obs_date, screener
 
-st.title("Bolag")
+st.title("📋 Alla bolag")
 
 d = latest_obs_date()
 st.caption(
     f"Alla bolag i databasen, med de senaste mätningarna (panelen slutar {d:%Y-%m-%d}). "
-    "**Klicka på en rad för att öppna hela genomgången.** \"Marc-signal\" är en "
+    "**Klicka på en rad för att öppna hela genomgången.** \"Discovery Score\" är en "
     "**preliminär** poäng med ovaliderade vikter. Segment: *small* = genuina småbolag "
     "(huvudfokus), *mid* = har vuxit förbi taket men behålls. Klicka på en kolumnrubrik "
     "för att sortera."
@@ -68,7 +68,7 @@ handel_pct = ((view["rvol_5_60"] - 1.0) * 100)
 show = pd.DataFrame(
     {
         "Bolag": view["name"].values,
-        "Marc-signal": view["score"].values,
+        "Discovery": view["score"].values,
         "Bedömning": view["band"].fillna("–").values,
         "Sektor": view["sector"].values,
         "Land": view["country"].values,
@@ -93,9 +93,9 @@ event = st.dataframe(
     on_select="rerun",
     selection_mode="single-row",
     column_config={
-        "Marc-signal": st.column_config.ProgressColumn(
+        "Discovery": st.column_config.ProgressColumn(
             format="%.0f", min_value=0, max_value=100,
-            help="Preliminär poäng 0–100 med ovaliderade vikter — momentum, läge mot årshögsta, handel, mönster",
+            help="Experimentell, ovaliderad poäng 0–100 — momentum, läge mot årshögsta, handel, mönster",
         ),
         "Börsvärde (MSEK)": st.column_config.NumberColumn(format="%.0f"),
         "Kurs 3 mån (%)": st.column_config.NumberColumn(

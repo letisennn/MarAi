@@ -8,9 +8,11 @@ import typer
 
 from marc.config import get_logger
 
-app = typer.Typer(add_completion=False, help="Marc AI — Nordic small-cap research engine (v0.1)")
+app = typer.Typer(add_completion=False, help="Noel AI — Nordic small-cap discovery engine")
 db_app = typer.Typer(help="database")
 app.add_typer(db_app, name="db")
+disc_app = typer.Typer(help="discovery log / paper trading")
+app.add_typer(disc_app, name="discovery")
 
 log = get_logger("marc.cli")
 
@@ -66,6 +68,29 @@ def signals_run() -> None:
 
     with session(read_only=False) as con:
         typer.echo(json.dumps(apply_rules(con), indent=2, default=str))
+
+
+@disc_app.command("snapshot")
+def discovery_snapshot(
+    top: int = typer.Option(10, help="antal kandidater att spara"),
+    segment: str = typer.Option("small", help="small | mid | all"),
+) -> None:
+    """Spara dagens radar-kandidater som discovery-rader (point-in-time)."""
+    from marc.db.session import session
+    from marc.discovery.snapshot import snapshot
+
+    with session(read_only=False) as con:
+        typer.echo(json.dumps(snapshot(con, top=top, segment=segment), indent=2, default=str))
+
+
+@disc_app.command("evaluate")
+def discovery_evaluate() -> None:
+    """Fyll i utfall (+1/5/20/30/60/90/180 d) för discoveries vars horisont passerat."""
+    from marc.db.session import session
+    from marc.discovery.snapshot import evaluate
+
+    with session(read_only=False) as con:
+        typer.echo(json.dumps(evaluate(con), indent=2, default=str))
 
 
 @app.command("info")

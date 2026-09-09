@@ -1,11 +1,15 @@
-# CLAUDE.md — Marc AI
+# CLAUDE.md — Noel AI
 
 > Läs hela den här filen innan du gör något i repot. Den kodifierar projektets
 > filosofi och de hårda reglerna som varje session måste följa.
 
+> **Namnbyte 2026-09-09 (Jonas):** produkten heter **Noel AI** (tidigare "Marc
+> AI"). Allt användarvänt (app, CLI-hjälp, docs) säger Noel. Python-paketet
+> ligger kvar som `src/marc/` — internt namn, byts inte utan särskild anledning.
+
 ## Vad det här är
 
-Marc AI är ett **privat internt research-verktyg** för två personer (Jonas och
+Noel AI är ett **privat internt research-verktyg** för två personer (Jonas och
 Hugo). Det är en AI-driven marknadspsykologi- och discovery-motor för **nordiska
 small-cap-bolag** (Sverige primärt; Norge, Danmark, Finland sekundärt).
 
@@ -123,6 +127,7 @@ src/marc/
   targets/     forward returns / events -> target_panel (framtida data by design; aldrig en feature)
   signals/     regelbaserad signalgenerering -> signal_log (regler, inga skattade vikter)
   score/       PRELIMINÄR composite-score (config/score.yml, handsatta vikter) -> ren funktion, appen renderar "ovaliderad"
+  discovery/   marknadsfas (7-fasers hype-cykel) + historiska analoger (kNN på feature_panel, point-in-time) + snapshot/evaluate för paper trading. Beskrivande, experimentellt.
   stats/       baslinjefrekvenser, univariata quintil-sorteringar, rank-IC, kontroll-lift, Fama-MacBeth, block-bootstrap → experiment_result
   panel.py     bygger observation + feature_panel + target_panel (veckovis)
   pipeline.py  end-to-end-orkestrering (marc pipeline)

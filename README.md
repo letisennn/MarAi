@@ -1,19 +1,29 @@
-# Marc AI
+# Noel AI
 
-Private internal research tool (Jonas & Hugo) — an AI-driven market-psychology
-and discovery engine for Nordic small-cap companies.
+Private internal research tool (Jonas & Hugo) — a market-discovery /
+market-psychology engine for Nordic small-cap companies. Measures changes in
+attention, volume and momentum, places companies in a hype-cycle phase, and
+compares the current situation to historical analogues.
 
 **Not a product.** Two users, browser-based, private. The research engine lives
-in `src/marc/` as a clean importable package; the Streamlit app in `app/` only
-renders it.
+in `src/marc/` as a clean importable package (internal name kept); the Streamlit
+app in `app/` only renders it.
 
 ## Status
 
-**Version 0.1 (market baseline) is implemented** and runs on a synthetic price
-source (offline, deterministic — not market data). End-to-end: universe → price /
-volume / market cap → causal features → forward-return targets → DuckDB →
-statistical baseline (experiment E1) → pre-registered signal rules → Streamlit
-app. See `docs/roadmap.md`, `docs/results/E1.md`, `CLAUDE.md`.
+**Version 0.1 (market baseline) is implemented**, running on **real Yahoo Finance
+data** (~80 Nordic tickers; `--source synthetic` for offline/demo). End-to-end:
+universe → price / volume / market cap → causal features → forward-return targets
+→ DuckDB → statistical baseline (experiment E1) → pre-registered signal rules →
+Streamlit app.
+
+On top of that: **Market Radar** (discovery ranking + hype-cycle phase),
+**Historical Analogues** (point-in-time kNN over the feature panel → forward
+outcome distribution vs a control group), **Signal Lab** (interactive signal ×
+target × universe tests with bootstrap CIs), **Daily Discoveries**, and a
+**paper-trading** datamodel (`marc discovery snapshot` / `evaluate`). All of it
+is labelled experimental / unvalidated. See `docs/roadmap.md`,
+`docs/results/E1.md`, `CLAUDE.md`.
 
 ## Documents
 

@@ -14,7 +14,9 @@ from plotly.subplots import make_subplots
 from _data import (
     COUNTRY_SV,
     EVENT_SHORT,
+    PHASE_SV,
     RULE_SV,
+    analogues,
     feature_label,
     fmt_feature,
     has_attention,
@@ -29,6 +31,7 @@ from _data import (
     security_list,
     security_listing_history,
     security_overview,
+    security_phase,
     security_prices,
     security_signal_history,
     stock_assessment,
@@ -36,6 +39,8 @@ from _data import (
 )
 
 st.title("Bolag i detalj")
+
+_PHASE_ORDER = ["low", "early", "accelerating", "hype", "mass", "exhaustion", "reversal"]
 
 secs = security_list()
 names = secs["name"].tolist()
@@ -74,6 +79,14 @@ st.markdown(
     f"{seg_word}, börsvärde {mc_txt}"
 )
 
+# --------------------------------------------------------------- marknadsfas
+ph = security_phase(sid)
+if ph.get("key") and ph["key"] != "unknown":
+    st.markdown(f"**Marknadsfas:** {ph['marker']} {ph['label']} — {ph['note']}")
+    st.caption("Cykel: " + " → ".join(
+        (f"**{PHASE_SV[k]}**" if k == ph["key"] else PHASE_SV[k]) for k in _PHASE_ORDER
+    ) + "  ·  beskrivande, ej köp/sälj")
+
 # =============================================================== SLUTSATS
 with st.container(border=True):
     st.markdown(f"## {vd['ikon']} {vd['kategori']}")
@@ -95,14 +108,91 @@ with st.container(border=True):
     foot += "Beskriver nuläget mot historisk frekvens — inte en prognos."
     st.caption(foot)
 
-# --------------------------------------------------------------- marc-signal (kompakt)
+# =============================================================== HISTORISKA ANALOGER
+st.subheader("Historiska analoger")
+st.caption(
+    "Noel letar upp tidigare veckoobservationer (andra bolag) vars pris/volym-läge "
+    "liknade det här bolagets nuläge, och visar vad de aktierna faktiskt gjorde efteråt. "
+    "Point-in-time: bara information känd vid respektive tidpunkt används; framtida "
+    "avkastning är enbart utfall."
+)
+inc_attn = st.checkbox(
+    "Ta även med (syntetisk) attention i likhetsmåttet", value=False,
+    help="Attention-datan är syntetisk och inte konstruerad att leda kursen — resultat med den på är en metod-demo.",
+)
+ana = analogues(sid, k=40, include_attention=inc_attn)
+if ana.get("n_analogues", 0) < 8:
+    st.info("För få historiska analoger för det här läget för att säga något meningsfullt.")
+else:
+    n = ana["n_analogues"]
+    span = ana.get("date_span", ("", ""))
+    st.markdown(
+        f"**{n} liknande historiska situationer** i {ana['n_distinct_names']} olika bolag "
+        f"({span[0]} – {span[1]}). Medianavstånd {ana['median_distance']:.2f} i z-score-rymden."
+    )
+    hz = ana["horizons"]
+    rows = []
+    for h in (5, 20, 30, 60, 90, 180):
+        d = hz.get(h, {})
+        if not d or d.get("median_ret") is None:
+            continue
+        rows.append({
+            "Horisont": f"+{h} dagar",
+            "Median": d["median_ret"] * 100,
+            "Medel": (d["mean_ret"] * 100) if d.get("mean_ret") is not None else None,
+            "Median max-upp": (d["median_max_ret"] * 100) if d.get("median_max_ret") is not None else None,
+            "Median max-ned": (d["median_max_dd"] * 100) if d.get("median_max_dd") is not None else None,
+            "Nådde målnivån": (d["hit_rate"] * 100) if d.get("hit_rate") is not None else None,
+            "Kontroll": (d["control_hit_rate"] * 100) if d.get("control_hit_rate") is not None else None,
+            "n": d.get("n"),
+        })
+    if rows:
+        st.markdown("**Vad hände efteråt?**")
+        st.dataframe(
+            pd.DataFrame(rows), hide_index=True, width="stretch",
+            column_config={
+                "Median": st.column_config.NumberColumn(format="%+.1f%%"),
+                "Medel": st.column_config.NumberColumn(format="%+.1f%%"),
+                "Median max-upp": st.column_config.NumberColumn(format="%+.1f%%"),
+                "Median max-ned": st.column_config.NumberColumn(format="%+.1f%%"),
+                "Nådde målnivån": st.column_config.NumberColumn(format="%.0f%%",
+                    help="Andel som nådde eventnivån för horisonten (+10%/5d, +25%/20d, +50%/30–90d, +100%/180d)"),
+                "Kontroll": st.column_config.NumberColumn(format="%.0f%%",
+                    help="Samma andel i hela small-segmentet"),
+            },
+        )
+    r50 = ana.get("reached_50_within_90d")
+    if r50:
+        st.markdown(f"**Nådde +50 % inom 90 dagar:** {r50[0]} av {r50[1]} analoger.")
+    h90 = hz.get(90, {})
+    if h90.get("lift") is not None:
+        lift = h90["lift"]
+        word = ("bättre än" if lift >= 1.15 else "sämre än" if lift <= 0.85 else "i linje med")
+        st.markdown(
+            f"Träffgraden för +50 %/90 d bland analogerna är **{word} kontrollgruppen** "
+            f"(lift {lift:.2f})."
+        )
+    if n < 20:
+        st.warning(f"Bara {n} analoger — behandla siffrorna som en indikation, inte ett resultat.")
+    st.caption(
+        "Beskrivande, in-sample. Om likhetsläget verkligen bär information ska det "
+        "visas på en avskild period — se Signal Lab / Forskning."
+    )
+    with st.expander(f"De {n} närmaste analogerna"):
+        nb = ana["neighbours"].copy()
+        nb["Datum"] = pd.to_datetime(nb["Datum"]).dt.strftime("%Y-%m-%d")
+        nb["Avstånd"] = nb["Avstånd"].round(3)
+        st.dataframe(nb, hide_index=True, width="stretch")
+        st.caption("Features i likhetsmåttet: " + ", ".join(ana.get("features_used", [])))
+
+# --------------------------------------------------------------- discovery score (kompakt)
 if assess.get("has_feats"):
     score, band = assess["score"], assess["band"]
     up, dn = assess.get("upside"), assess.get("downside")
     with st.container(border=True):
         c1, c2 = st.columns([3, 4])
         with c1:
-            st.caption("Marc-signal (preliminär, ovaliderade vikter)")
+            st.caption("Discovery Score (experimentell, ej validerad)")
             st.markdown(f"### {score:.0f} / 100 — {band}")
             st.progress(min(max(score / 100, 0.0), 1.0))
         with c2:
