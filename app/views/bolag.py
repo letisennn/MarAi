@@ -5,17 +5,19 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from _data import all_scores, latest_obs_date, screener
+from _data import all_scores, all_setup_scores, latest_obs_date, screener
 
 st.title("📋 Alla bolag")
 
 d = latest_obs_date()
 st.caption(
     f"Alla bolag i databasen, med de senaste mätningarna (panelen slutar {d:%Y-%m-%d}). "
-    "**Klicka på en rad för att öppna hela genomgången.** \"Discovery Score\" är en "
-    "**preliminär** poäng med ovaliderade vikter. Segment: *small* = genuina småbolag "
-    "(huvudfokus), *mid* = har vuxit förbi taket men behålls. Klicka på en kolumnrubrik "
-    "för att sortera."
+    "**Klicka på en rad för att öppna hela genomgången.** \"Uppbyggnad\" letar läget "
+    "FÖRE en rörelse (huvudrankning); \"Discovery\" mäter hur starkt bolaget rör sig "
+    "**just nu** — ett högt Discovery-värde utan Uppbyggnad betyder ofta att uppgången "
+    "redan syns för alla. Båda är **preliminära**, ovaliderade poäng. Segment: "
+    "*small* = genuina småbolag (huvudfokus), *mid* = har vuxit förbi taket men "
+    "behålls. Klicka på en kolumnrubrik för att sortera."
 )
 
 weeks = st.slider(
@@ -58,8 +60,11 @@ if only_sig:
     view = view[view["n_rules"] > 0]
 
 sc = all_scores(weeks=weeks)
-view = view.merge(sc, on="security_id", how="left").sort_values(
-    "score", ascending=False, na_position="last"
+su = all_setup_scores()
+view = (
+    view.merge(sc, on="security_id", how="left")
+    .merge(su, on="security_id", how="left")
+    .sort_values("setup_score", ascending=False, na_position="last")
 )
 
 # handel som procent mot normalt: 1.8 -> "+80 %", 0.6 -> "-40 %"
@@ -68,6 +73,8 @@ handel_pct = ((view["rvol_5_60"] - 1.0) * 100)
 show = pd.DataFrame(
     {
         "Bolag": view["name"].values,
+        "Uppbyggnad": view["setup_score"].values,
+        "Redan synligt": view["already_visible"].map({True: "⚠️ Ja", False: ""}).fillna("").values,
         "Discovery": view["score"].values,
         "Bedömning": view["band"].fillna("–").values,
         "Sektor": view["sector"].values,
@@ -93,9 +100,17 @@ event = st.dataframe(
     on_select="rerun",
     selection_mode="single-row",
     column_config={
+        "Uppbyggnad": st.column_config.ProgressColumn(
+            format="%.0f", min_value=0, max_value=100,
+            help="Letar läget FÖRE en rörelse — huvudrankning. Experimentell, ovaliderad.",
+        ),
+        "Redan synligt": st.column_config.TextColumn(
+            "⚠️", help="Redan nära årshögsta med stor uppgång bakom sig — inget övertag att peka på det.",
+        ),
         "Discovery": st.column_config.ProgressColumn(
             format="%.0f", min_value=0, max_value=100,
-            help="Experimentell, ovaliderad poäng 0–100 — momentum, läge mot årshögsta, handel, mönster",
+            help="Hur starkt bolaget rör sig JUST NU (referens) — momentum, läge mot årshögsta, handel, mönster. "
+                 "Experimentell, ovaliderad.",
         ),
         "Börsvärde (MSEK)": st.column_config.NumberColumn(format="%.0f"),
         "Kurs 3 mån (%)": st.column_config.NumberColumn(

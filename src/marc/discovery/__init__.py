@@ -13,13 +13,17 @@ from marc.discovery.analogues import (
     find_analogues,
 )
 from marc.discovery.phase import PHASES, Phase, classify_phase
+from marc.discovery.setup import SetupBreakdown, SetupComponent, assess_setup
 
 __all__ = [
     "ANALOGUE_FEATURES",
     "ANALOGUE_FEATURES_ATTENTION",
     "PHASES",
     "Phase",
+    "SetupBreakdown",
+    "SetupComponent",
     "analogue_outcomes",
+    "assess_setup",
     "classify_phase",
     "find_analogues",
 ]

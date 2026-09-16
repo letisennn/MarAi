@@ -7,6 +7,14 @@
 > AI"). Allt användarvänt (app, CLI-hjälp, docs) säger Noel. Python-paketet
 > ligger kvar som `src/marc/` — internt namn, byts inte utan särskild anledning.
 
+> **Rättning 2026-09-16 (Jonas).** Market Radar/Dagens upptäckter rankade på
+> Discovery Score, som belönar bolag redan nära årshögsta med stor uppgång
+> bakom sig — sådant syns för alla, inget informationsövertag. Ny
+> **Uppbyggnadspoäng** (`marc.discovery.setup`) är nu huvudrankning där: letar
+> läget FÖRE en rörelse (tyst kurs, stigande volym/uppmärksamhet, en bit under
+> — inte vid — årshögsta) och capar/flaggar uttryckligen bolag som redan är
+> synliga. Discovery Score kvar som referens, inte huvudmått.
+
 ## Vad det här är
 
 Noel AI är ett **privat internt research-verktyg** för två personer (Jonas och
@@ -128,8 +136,8 @@ src/marc/
   features/    rena kausala feature-funktioner (pris/volym + attention) -> feature_panel (versionerat, v0.2)
   targets/     forward returns / events -> target_panel (framtida data by design; aldrig en feature)
   signals/     regelbaserad signalgenerering -> signal_log (regler, inga skattade vikter)
-  score/       PRELIMINÄR composite-score (config/score.yml, handsatta vikter) -> ren funktion, appen renderar "ovaliderad"
-  discovery/   marknadsfas (7-fasers hype-cykel) + historiska analoger (kNN på feature_panel, point-in-time) + snapshot/evaluate för automatisk research-logg. Beskrivande, experimentellt.
+  score/       PRELIMINÄR "Discovery Score" (config/score.yml) -> hur starkt ett bolag rör sig JUST NU (momentum/närhet till högsta/volym). Referensmått, inte huvudrankning (se discovery/setup.py).
+  discovery/   marknadsfas (7-fasers hype-cykel) + PRELIMINÄR "Uppbyggnadspoäng" (setup.py, config/setup_score.yml) — HUVUDRANKNING i Market Radar/Dagens upptäckter, motsatt inriktning mot Discovery Score: letar tyst kurs + stigande volym/uppmärksamhet UNDER (inte vid) årshögsta, och capar/flaggar bolag som redan är nära årshögsta med stor uppgång bakom sig ("redan synligt för alla", 2026-09-16, Jonas) + historiska analoger (kNN på feature_panel, point-in-time) + snapshot/evaluate för automatisk research-logg. Allt beskrivande, experimentellt.
   paper/       manuell pappershandel (100 000 kr fejkat startkapital, riktiga kurser). Egen separat databasfil (data/paper_trades.duckdb) — appens ENDA skrivväg, rör aldrig data/marc.duckdb.
   stats/       baslinjefrekvenser, univariata quintil-sorteringar, rank-IC, kontroll-lift, Fama-MacBeth, block-bootstrap → experiment_result
   panel.py     bygger observation + feature_panel + target_panel (veckovis)

@@ -739,6 +739,24 @@ def all_scores(weeks: int = 8) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=60)
+def all_setup_scores() -> pd.DataFrame:
+    """Preliminärt uppbyggnadspoäng ('setup') för varje bolag — motsatt
+    inriktning mot Discovery Score, se marc.discovery.setup. Straffar/utesluter
+    bolag redan nära årshögsta med stor uppgång bakom sig."""
+    peers = peer_features_latest()
+    if peers.empty:
+        return pd.DataFrame(columns=["security_id", "setup_score", "setup_band", "already_visible"])
+    rows = []
+    for sid, frow in peers.iterrows():
+        b = _assess_setup(frow.to_dict(), peers)
+        rows.append({
+            "security_id": int(sid), "setup_score": b.total, "setup_band": b.band,
+            "already_visible": b.already_visible,
+        })
+    return pd.DataFrame(rows)
+
+
+@st.cache_data(ttl=60)
 def stock_assessment(sid: int, weeks: int = 8) -> dict:
     """Full bedömning för ett bolag: composite-score + uppdelning + historiskt rörelsespann."""
     obs_date, feats = security_features_latest(sid)
@@ -783,6 +801,28 @@ def stock_assessment(sid: int, weeks: int = 8) -> dict:
     out["downside"] = dn
     out["range_basis"] = basis
     out["n_rules"] = n_rules
+    return out
+
+
+@st.cache_data(ttl=60)
+def stock_setup(sid: int) -> dict:
+    """Uppbyggnadspoäng för ett bolag: motsatt inriktning mot stock_assessment
+    (Discovery Score). Se marc.discovery.setup — letar läget FÖRE en rörelse,
+    inte efter, och flaggar uttryckligen om bolaget redan är 'synligt för alla'."""
+    _, feats = security_features_latest(sid)
+    peers = peer_features_latest()
+    out: dict = {"has_feats": bool(feats)}
+    if not feats or peers.empty:
+        return out
+    b = _assess_setup(feats, peers)
+    out["score"] = b.total
+    out["band"] = b.band
+    out["score_version"] = b.score_version
+    out["already_visible"] = b.already_visible
+    out["components"] = [
+        {"key": c.key, "label": c.label, "score": c.score, "weight": c.weight, "detail": c.detail}
+        for c in b.components
+    ]
     return out
 
 
@@ -952,7 +992,7 @@ def verdict(sid: int, weeks: int = 8) -> dict:
         return "Uppmärksamhet: " + " och ".join(bits) + ". (Syntetisk attention-data.)"
 
     vol_rising = (vacc is not None and vacc > 0) or (rvol is not None and rvol >= 1.2)
-    exploded_now = (rvol is not None and rvol >= 2.5 and r1m is not None and r1m >= 0.15)
+    exploded_now = (rvol is not None and rvol >= 2.0 and r1m is not None and r1m >= 0.15)
     calm_price = r1m is not None and -0.06 <= r1m <= 0.15
 
     # ---- beslutsträd, första träff vinner --------------------------------
@@ -976,6 +1016,9 @@ def verdict(sid: int, weeks: int = 8) -> dict:
         emot = [
             "Går man in mitt i ett utbrott är en stor del av rörelsen ofta redan gjord; "
             "bakslag på 15–30 % är vanliga.",
+            "Det här syns i vilken kursgraf som helst — inget informationsövertag i att "
+            "peka på det. Ett riktigt övertag ligger i att hitta det HÄR läget INNAN "
+            "kursen redan dragit (se Uppbyggnadspoäng / Market Radar).",
         ]
         if r3m is not None and r3m >= 0.6:
             emot.append(f"Bolaget har redan gått {_pct(r3m)} på tre månader.")
@@ -1027,6 +1070,8 @@ def verdict(sid: int, weeks: int = 8) -> dict:
         emot = [
             "Starka trender pågår ofta längre än man tror. Det här är ingen säljsignal — "
             "bara att ett nytt köp på den här nivån har dålig historik.",
+            "Vem som helst som öppnar en kursgraf ser att det här redan gått — inget "
+            "övertag i att upptäcka det nu.",
         ]
         nyckeltal = generic_number
 
@@ -1206,6 +1251,7 @@ ANALOGUE_FEATURES_ATTENTION = _disc.ANALOGUE_FEATURES_ATTENTION
 _analogue_outcomes = _disc.analogue_outcomes
 _classify_phase = _disc.classify_phase
 _find_analogues = _disc.find_analogues
+_assess_setup = _disc.assess_setup
 
 PHASE_SV = {
     "low": "Låg uppmärksamhet",
@@ -1234,16 +1280,22 @@ def security_phase(sid: int) -> dict:
 
 @st.cache_data(ttl=60)
 def market_radar(segment: str = "small", weeks: int = 8) -> pd.DataFrame:
-    """En rad per bolag i universumet: discovery-score, fas, acceleration, volym, momentum.
+    """En rad per bolag i universumet: uppbyggnadspoäng (huvudrankning), discovery-
+    score (referens), fas, acceleration, volym, momentum.
 
     Radarn prioriterar FÖRÄNDRINGSTAKT (attention-/volymacceleration, momentum)
-    framför absolut nivå (spec-brief §11).
+    framför absolut nivå (spec-brief §11) — och rankas i första hand på
+    Uppbyggnadspoäng, inte Discovery Score: Discovery Score belönar bolag som
+    redan syns för alla (nära årshögsta, stor uppgång bakom sig), vilket inte
+    ger något informationsövertag (Jonas, 2026-09-16). Sådana bolag hamnar
+    längst ner här — de hör hemma i Rörelser & utbrott.
     """
     peers = peer_features_latest()
     if peers.empty:
         return pd.DataFrame()
     rmap = _rules_by_security(weeks)
     scores = all_scores(weeks).set_index("security_id")
+    setup_scores = all_setup_scores().set_index("security_id")
     meta = q(
         """
         WITH last_obs AS (SELECT security_id, max(obs_date) AS obs_date FROM observation GROUP BY 1)
@@ -1263,9 +1315,12 @@ def market_radar(segment: str = "small", weeks: int = 8) -> pd.DataFrame:
         m = meta.loc[sid]
         p = _classify_phase(f)
         sc = scores.loc[sid] if sid in scores.index else None
+        su = setup_scores.loc[sid] if sid in setup_scores.index else None
         rows.append({
             "security_id": int(sid),
             "Bolag": m["name"],
+            "Uppbyggnad": None if su is None else float(su["setup_score"]),
+            "Redan synligt": None if su is None else bool(su["already_visible"]),
             "Discovery": None if sc is None else float(sc["score"]),
             "Fas": f"{p.marker} {p.label}",
             "phase_idx": p.idx,
@@ -1286,7 +1341,7 @@ def market_radar(segment: str = "small", weeks: int = 8) -> pd.DataFrame:
         return df
     if segment in ("small", "mid"):
         df = df[df["segment"] == segment]
-    return df.sort_values(["Discovery"], ascending=False, na_position="last").reset_index(drop=True)
+    return df.sort_values(["Uppbyggnad"], ascending=False, na_position="last").reset_index(drop=True)
 
 
 def _num(v):
@@ -1324,16 +1379,19 @@ def analogues(sid: int, k: int = 40, include_attention: bool = False) -> dict:
 
 @st.cache_data(ttl=60)
 def daily_discoveries(n: int = 8, segment: str = "small") -> pd.DataFrame:
-    """Dagens kandidater: högst experimentell discovery-score bland bolag i en
-    tidig/accelererande fas. Rankningen är EXPERIMENTELL — ovaliderad score.
+    """Dagens kandidater: högst uppbyggnadspoäng bland bolag i tidig/accelererande
+    fas — UTESLUTER 'Snabb hype' och senare faser med flit, de är redan synliga
+    för alla (Jonas, 2026-09-16). Rankningen är EXPERIMENTELL — ovaliderad score.
     """
     radar = market_radar(segment=segment)
     if radar.empty:
         return radar
-    early = radar[radar["phase_idx"].isin([2, 3, 4])].copy()
+    early = radar[radar["phase_idx"].isin([2, 3]) & ~radar["Redan synligt"].fillna(False)].copy()
+    if early.empty:
+        early = radar[~radar["Redan synligt"].fillna(False)].copy()
     if early.empty:
         early = radar.copy()
-    return early.sort_values("Discovery", ascending=False, na_position="last").head(n).reset_index(drop=True)
+    return early.sort_values("Uppbyggnad", ascending=False, na_position="last").head(n).reset_index(drop=True)
 
 
 _SIGNAL_FEATURES_SV = {

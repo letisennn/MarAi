@@ -35,6 +35,7 @@ from _data import (
     security_prices,
     security_signal_history,
     stock_assessment,
+    stock_setup,
     verdict,
 )
 
@@ -59,6 +60,7 @@ hist = security_signal_history(sid)
 if not hist.empty:
     hist = hist.assign(_d=pd.to_datetime(hist["as_of_date"]))
 assess = stock_assessment(sid)
+setup = stock_setup(sid)
 fhist = security_feature_history(sid)
 vd = verdict(sid)
 
@@ -185,16 +187,37 @@ else:
         st.dataframe(nb, hide_index=True, width="stretch")
         st.caption("Features i likhetsmåttet: " + ", ".join(ana.get("features_used", [])))
 
-# --------------------------------------------------------------- discovery score (kompakt)
+# --------------------------------------------------------------- uppbyggnad + discovery (kompakt)
+if setup.get("has_feats"):
+    with st.container(border=True):
+        u1, u2 = st.columns([3, 4])
+        with u1:
+            st.caption("Uppbyggnadspoäng (experimentell, ej validerad)")
+            st.markdown(f"### {setup['score']:.0f} / 100 — {setup['band']}")
+            st.progress(min(max(setup["score"] / 100, 0.0), 1.0))
+            st.caption("Letar läget FÖRE en rörelse — huvudrankningen i Market Radar.")
+        with u2:
+            if setup.get("already_visible"):
+                st.warning(
+                    "**Redan synligt för alla.** Nära årshögsta med en stor uppgång "
+                    "bakom sig — vem som helst som öppnar en kursgraf ser det här. "
+                    "Poängen är därför capad; inget informationsövertag i att peka på det.",
+                    icon="⚠️",
+                )
+            else:
+                st.caption("Bolaget är INTE redan 'synligt för alla' i det här måttet — "
+                           "kursen har inte redan dragit iväg nära årshögsta.")
+
 if assess.get("has_feats"):
     score, band = assess["score"], assess["band"]
     up, dn = assess.get("upside"), assess.get("downside")
     with st.container(border=True):
         c1, c2 = st.columns([3, 4])
         with c1:
-            st.caption("Discovery Score (experimentell, ej validerad)")
+            st.caption("Discovery Score (referens — hur starkt just nu, ej validerad)")
             st.markdown(f"### {score:.0f} / 100 — {band}")
             st.progress(min(max(score / 100, 0.0), 1.0))
+            st.caption("Hög poäng här utan hög Uppbyggnadspoäng = rörelsen syns redan.")
         with c2:
             st.caption(f"Historiskt rörelsespann inom ~4 mån — {assess['range_basis']}")
             if up is not None and dn is not None:
@@ -203,8 +226,16 @@ if assess.get("has_feats"):
 
 # =============================================================== bakgrund (utfällbart)
 with st.expander("Vad som ligger bakom slutsatsen — delpoäng och mätvärden"):
+    if setup.get("has_feats"):
+        st.markdown("**Uppbyggnadspoäng — delpoäng** (0–100, jämfört med övriga bolag i universumet just nu)")
+        for c in setup["components"]:
+            st.markdown(f"**{c['label']}**  ·  {c['score']:.0f} / 100  ·  vikt {c['weight']:.0%}")
+            st.progress(min(max(c["score"] / 100, 0.0), 1.0))
+            st.caption(c["detail"])
+        st.divider()
+
     if assess.get("has_feats"):
-        st.markdown("**Delpoäng** (varje del jämförd med övriga bolag i universumet just nu, 0–100)")
+        st.markdown("**Discovery Score — delpoäng** (varje del jämförd med övriga bolag i universumet just nu, 0–100)")
         for c in assess["components"]:
             st.markdown(f"**{c['label']}**  ·  {c['score']:.0f} / 100  ·  vikt {c['weight']:.0%}")
             st.progress(min(max(c["score"] / 100, 0.0), 1.0))

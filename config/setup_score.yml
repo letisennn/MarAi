@@ -1,0 +1,46 @@
+# UPPBYGGNADSPOÄNG ("setup"-score) — PRELIMINÄR, OVALIDERAD.
+#
+# Motsatt inriktning mot score.yml. Discovery Score (score.yml) svarar på
+# "hur starkt rör sig bolaget just nu" och belönar därför bolag nära
+# årshögsta med stor uppgång bakom sig — precis det som redan syns för alla
+# och alltså inte ger något informationsövertag (Jonas, 2026-09-16: "vem som
+# helst kan gå in på en aktie och se det").
+#
+# Den här scoren svarar på en annan fråga: ser läget ut som INNAN en rörelse,
+# inte efter. Den belönar tyst kurs + stigande volym/uppmärksamhet, och en
+# hård spärr (nedan) capar poängen för bolag som redan är nära årshögsta med
+# en stor uppgång bakom sig — de hör hemma i Rörelser & utbrott, inte här.
+#
+# Samma percentil-metod som score.yml (0–100 tvärsnittspercentil bland bolag
+# i universumet samma vecka), bara motsatt tecken på pris-/nivåkomponenterna.
+
+score_version: setup_prelim_v0.1
+
+weights:
+  volym_uppbyggnad: 0.30   # rvol_5_60 / vol_accel — hög & stigande volym = bra
+  uppmarksamhet: 0.25      # search_accel / forum_accel — ökande intresse = bra
+  lugn_kurs: 0.25          # |ret_1m| / |ret_3m| — LITEN rörelse hittills = bra
+  coiled_zon: 0.20         # dist_52w_high — bäst i ett band UNDER toppen, se nedan
+
+bands:
+  - [0, "Inget setup"]
+  - [30, "Bevaka"]
+  - [50, "Tidigt setup"]
+  - [68, "Starkt setup"]
+  - [82, "Mycket starkt setup"]
+
+# Triangulär poäng på avstånd till 52-veckors högsta: 0 vid själva toppen
+# (redan synligt), topp vid ~20 % under toppen (coiled, men fortfarande i spel),
+# tillbaka till 0 vid >55 % under toppen (troligen strukturellt trasigt, inte
+# "coiled" — se marc.discovery.setup._coiled_zone_score).
+coiled_zone:
+  peak_distance: 0.20
+  zero_beyond_distance: 0.55
+
+# Hård spärr: redan nära högsta OCH redan upp rejält senaste kvartalet =
+# inget informationsövertag i att peka på det. Capar totalpoängen oavsett
+# övriga komponenter.
+already_visible_gate:
+  dist_52w_high_min: -0.06   # inom 6 % av årshögsta
+  ret_3m_min: 0.15           # och redan upp minst 15 % på 3 månader
+  capped_score: 12

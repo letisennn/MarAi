@@ -78,6 +78,14 @@ def score_config() -> dict[str, Any]:
     return load_yaml("config/score.yml")
 
 
+@lru_cache
+def setup_score_config() -> dict[str, Any]:
+    """Preliminary 'setup'/accumulation-score weights — opposite orientation from
+    score_config(): rewards a pre-move signature instead of already-visible strength.
+    Hand-set, unvalidated — see CLAUDE.md rule 1."""
+    return load_yaml("config/setup_score.yml")
+
+
 _LOGGING_READY = False
 
 

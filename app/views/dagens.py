@@ -16,11 +16,12 @@ from _data import (
 
 st.title("🌅 Dagens upptäckter")
 d = latest_obs_date()
-st.caption(f"Senaste datavecka {d:%Y-%m-%d}. Kandidaterna väljs på experimentell "
-           "Discovery Score bland bolag i en tidig/accelererande fas.")
+st.caption(f"Senaste datavecka {d:%Y-%m-%d}. Kandidaterna väljs på Uppbyggnadspoäng "
+           "bland bolag i en tidig/accelererande fas.")
 st.info(
-    "**Experimentell discovery-rankning** — Discovery Score är inte statistiskt "
-    "validerad. Det här är lägen att undersöka, inte rekommendationer.",
+    "**Experimentell rankning, inte en rekommendation.** Bolag som redan är nära "
+    "årshögsta med stor uppgång bakom sig utesluts med flit — sådana syns för "
+    "alla och ger inget informationsövertag. Det här letar läget FÖRE, inte efter.",
     icon="🧪",
 )
 
@@ -39,10 +40,10 @@ for i, row in picks.iterrows():
     vd = verdict(sid)
     with st.container(border=True):
         head = f"{medal.get(i, f'#{i + 1}')} **{nm}**"
-        sc = row["Discovery"]
+        su = row["Uppbyggnad"]
         st.markdown(f"### {head}")
         m1, m2, m3 = st.columns(3)
-        m1.metric("Discovery (exp.)", f"{sc:.0f}/100" if pd.notna(sc) else "—")
+        m1.metric("Uppbyggnadspoäng (exp.)", f"{su:.0f}/100" if pd.notna(su) else "—")
         m2.metric("Fas", row["Fas"])
         mv = row["Volym mot normalt"]
         m3.metric("Volym mot normalt", f"{mv * 100:+.0f}%" if pd.notna(mv) else "—")
