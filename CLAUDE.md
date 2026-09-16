@@ -110,8 +110,10 @@ dokument (structural rerating / multibagger) är struket i sin helhet — se
   LightGBM/XGBoost senare (v0.7). Anthropic SDK senare (v0.5).
 - **Typer**-CLI (`marc <verb>`) + `Makefile` + cron för schemaläggning. Prefect
   bara om pipelines blir komplexa (v0.3+).
-- **Streamlit** för webbappen, read-only mot DuckDB. All research-logik ligger i
-  `marc`; appen importerar bara och renderar.
+- **Streamlit** för webbappen, read-only mot forskningsdatabasen (`data/marc.duckdb`).
+  All research-logik ligger i `marc`; appen importerar bara och renderar. Enda
+  undantaget: **pappershandel** (`marc.paper`) skriver till sin egen separata fil
+  (`data/paper_trades.duckdb`) — användarens fejkade affärer, aldrig forskningsdata.
 - Kvalitet: `ruff`, `mypy`, `pytest` + `hypothesis` (property-tester för
   kausalitet), `pre-commit`.
 
@@ -127,7 +129,8 @@ src/marc/
   targets/     forward returns / events -> target_panel (framtida data by design; aldrig en feature)
   signals/     regelbaserad signalgenerering -> signal_log (regler, inga skattade vikter)
   score/       PRELIMINÄR composite-score (config/score.yml, handsatta vikter) -> ren funktion, appen renderar "ovaliderad"
-  discovery/   marknadsfas (7-fasers hype-cykel) + historiska analoger (kNN på feature_panel, point-in-time) + snapshot/evaluate för paper trading. Beskrivande, experimentellt.
+  discovery/   marknadsfas (7-fasers hype-cykel) + historiska analoger (kNN på feature_panel, point-in-time) + snapshot/evaluate för automatisk research-logg. Beskrivande, experimentellt.
+  paper/       manuell pappershandel (100 000 kr fejkat startkapital, riktiga kurser). Egen separat databasfil (data/paper_trades.duckdb) — appens ENDA skrivväg, rör aldrig data/marc.duckdb.
   stats/       baslinjefrekvenser, univariata quintil-sorteringar, rank-IC, kontroll-lift, Fama-MacBeth, block-bootstrap → experiment_result
   panel.py     bygger observation + feature_panel + target_panel (veckovis)
   pipeline.py  end-to-end-orkestrering (marc pipeline)

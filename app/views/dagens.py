@@ -76,10 +76,14 @@ for i, row in picks.iterrows():
         else:
             st.caption("För få historiska analoger för tillförlitlig statistik.")
 
-        if st.button("Öppna full analys", key=f"open_{sid}"):
+        bcol1, bcol2 = st.columns(2)
+        if bcol1.button("Öppna full analys", key=f"open_{sid}"):
             st.session_state["sel_security"] = nm
             st.session_state["_bolag_opened"] = True
             st.switch_page("views/bolag_detalj.py")
+        if bcol2.button("🛒 Köp i paperhandel", key=f"buy_{sid}"):
+            st.session_state["paper_prefill"] = sid
+            st.switch_page("views/portfolio.py")
 
 st.caption(
     "Datamodellen stödjer paper trading: varje kandidat kan sparas som en "

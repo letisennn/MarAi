@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     def raw_dir(self) -> Path:
         return self.abs_data_dir / "raw"
 
+    @property
+    def paper_db_path(self) -> Path:
+        """Egen, separat DuckDB-fil för pappershandel (aldrig data/marc.duckdb —
+        appens forskningsdatabas är read-only; se marc.paper)."""
+        return self.abs_data_dir / "paper_trades.duckdb"
+
 
 @lru_cache
 def get_settings() -> Settings:

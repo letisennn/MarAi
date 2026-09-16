@@ -1474,3 +1474,16 @@ def discovery_performance() -> dict:
     except Exception:  # noqa: BLE001
         out = pd.DataFrame()
     return {"n": int(len(log)), "by_horizon": out}
+
+
+@st.cache_data(ttl=120)
+def latest_prices_all() -> dict:
+    """{security_id: senaste justerade kurs (SEK)} — för mark-to-market i pappershandeln."""
+    df = q(
+        """
+        WITH last AS (SELECT security_id, max(session_date) AS d FROM price_clean GROUP BY 1)
+        SELECT p.security_id, p.adj_close_sek
+        FROM price_clean p JOIN last l ON l.security_id = p.security_id AND l.d = p.session_date
+        """
+    )
+    return dict(zip(df["security_id"], df["adj_close_sek"], strict=False))

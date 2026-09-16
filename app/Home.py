@@ -95,6 +95,7 @@ nav = {
         st.Page("views/forskning.py", title="Forskning (E1)", icon="📚"),
     ],
     "Noel": [
+        st.Page("views/portfolio.py", title="Paperhandel", icon="💼"),
         st.Page("views/performance.py", title="Performance", icon="📊"),
     ],
 }
