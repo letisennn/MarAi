@@ -20,6 +20,10 @@ def trades():
         return _paper.list_trades(con)
 
 
+def trades_with_pnl(trades_df):
+    return _paper.trades_with_pnl(trades_df)
+
+
 def buy(security_id: int, shares: float, price: float, note: str | None = None) -> int:
     with _paper.session() as con:
         return _paper.record_trade(con, security_id, "buy", shares, price, note=note)

@@ -141,6 +141,36 @@ def compute_positions(trades: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(out, columns=cols)
 
 
+def trades_with_pnl(trades: pd.DataFrame) -> pd.DataFrame:
+    """En rad per affär, i tidsordning, med — för sälj — realiserad vinst/förlust
+    i kr och i procent mot den löpande snittkostnaden vid det tillfället. Köp
+    får None (ingen vinst/förlust att visa förrän man säljer)."""
+    if trades.empty:
+        return trades.assign(realized_pnl=pd.Series(dtype=float), realized_pnl_pct=pd.Series(dtype=float))
+    rows = []
+    for _, g in trades.sort_values(["trade_date", "created_at", "trade_id"]).groupby("security_id"):
+        shares = 0.0
+        cost = 0.0
+        for _, t in g.iterrows():
+            r = t.to_dict()
+            if t["side"] == "buy":
+                shares += t["shares"]
+                cost += t["shares"] * t["price_sek"]
+                r["realized_pnl"], r["realized_pnl_pct"] = None, None
+            else:
+                if shares > 1e-9:
+                    avg = cost / shares
+                    sold = min(t["shares"], shares)
+                    r["realized_pnl"] = sold * (t["price_sek"] - avg)
+                    r["realized_pnl_pct"] = (t["price_sek"] / avg - 1.0) if avg else None
+                    shares -= sold
+                    cost -= sold * avg
+                else:
+                    r["realized_pnl"], r["realized_pnl_pct"] = None, None
+            rows.append(r)
+    return pd.DataFrame(rows).sort_values(["trade_date", "created_at", "trade_id"]).reset_index(drop=True)
+
+
 def account_summary(con: duckdb.DuckDBPyConnection, latest_prices: dict[int, float]) -> dict:
     """Kassa, positionsvärde, totalt värde och vinst/förlust mot startkapitalet."""
     acct = get_account(con)

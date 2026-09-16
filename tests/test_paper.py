@@ -88,6 +88,21 @@ def test_invalid_side_and_nonpositive_amounts_rejected(isolated_paper_db) -> Non
             paper.record_trade(con, 1, "buy", 1, -5.0)
 
 
+def test_trades_with_pnl_marks_buys_none_and_sells_with_pct(isolated_paper_db) -> None:
+    with paper.session() as con:
+        paper.record_trade(con, 1, "buy", 10, 100.0)
+        paper.record_trade(con, 1, "buy", 10, 200.0)   # avg cost 150
+        paper.record_trade(con, 1, "sell", 5, 180.0)   # +20% mot snittkostnaden
+        trades = paper.list_trades(con)
+    out = paper.trades_with_pnl(trades)
+    buys = out[out["side"] == "buy"]
+    sells = out[out["side"] == "sell"]
+    assert buys["realized_pnl"].isna().all()
+    assert buys["realized_pnl_pct"].isna().all()
+    assert sells.iloc[0]["realized_pnl"] == pytest.approx(150.0)
+    assert sells.iloc[0]["realized_pnl_pct"] == pytest.approx(0.2)
+
+
 def test_compute_positions_empty_trades_returns_empty_frame() -> None:
     out = paper.compute_positions(pd.DataFrame())
     assert out.empty

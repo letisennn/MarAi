@@ -21,6 +21,32 @@ st.caption(
     "påverkar aldrig forskningsdatan eller Discovery Score. Inte en rekommendation."
 )
 
+
+# grönt = plus, rött = minus, blått = exakt +-0 (appens accentfärg), grått = okänt
+def _pnl_color(v) -> str:
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return "#9aa7b0"
+    if abs(v) < 1e-9:
+        return "#4c8dff"
+    return "#22c55e" if v > 0 else "#ef4444"
+
+
+def _style_pnl(v) -> str:
+    return f"color: {_pnl_color(v)}; font-weight: 600"
+
+
+def _colored_metric(label: str, kr_value, pct_value) -> None:
+    color = _pnl_color(kr_value)
+    kr_txt = "–" if kr_value is None or pd.isna(kr_value) else f"{kr_value:+,.0f} kr".replace(",", " ")
+    pct_txt = "" if pct_value is None or pd.isna(pct_value) else f"{pct_value * 100:+.1f} %"
+    st.markdown(
+        f"<div style='font-size:0.875rem;opacity:0.7;margin-bottom:2px'>{label}</div>"
+        f"<div style='font-size:1.75rem;font-weight:700;color:{color};line-height:1.2'>{kr_txt}</div>"
+        f"<div style='font-size:1rem;font-weight:600;color:{color}'>{pct_txt}</div>",
+        unsafe_allow_html=True,
+    )
+
+
 names = security_list().set_index("security_id")["name"].to_dict()
 prices = latest_prices_all()
 acct = _paper.summary(prices)
@@ -30,13 +56,8 @@ c1, c2, c3, c4 = st.columns(4)
 c1.metric("Totalt värde", f"{acct['total_value']:,.0f} kr".replace(",", " "))
 c2.metric("Kassa", f"{acct['cash']:,.0f} kr".replace(",", " "))
 c3.metric("Positioner (marknadsvärde)", f"{acct['positions_value']:,.0f} kr".replace(",", " "))
-pnl = acct["total_pnl"]
-pnl_pct = acct["total_pnl_pct"]
-c4.metric(
-    "Totalt resultat",
-    f"{pnl:+,.0f} kr".replace(",", " "),
-    f"{pnl_pct * 100:+.1f} %" if pnl_pct is not None else None,
-)
+with c4:
+    _colored_metric("Totalt resultat", acct["total_pnl"], acct["total_pnl_pct"])
 if acct["n_trades"] == 0:
     st.info(f"Inga affärer än. Startkapital: {acct['starting_capital']:,.0f} kr.".replace(",", " "))
 
@@ -94,23 +115,25 @@ if pos.empty:
 else:
     disp = pos.copy()
     disp["Bolag"] = disp["security_id"].map(names)
-    disp["Oreal. P&L (%)"] = (disp["unrealized_pnl"] / (disp["shares"] * disp["avg_cost"])) * 100
+    disp["Oreal. P&L (%)"] = disp["unrealized_pnl"] / (disp["shares"] * disp["avg_cost"])
     disp = disp.rename(columns={
         "shares": "Antal", "avg_cost": "Snittkurs", "price_now": "Kurs nu",
         "market_value": "Marknadsvärde", "unrealized_pnl": "Oreal. P&L (kr)",
     })
-    st.dataframe(
+    styler = (
         disp[["Bolag", "Antal", "Snittkurs", "Kurs nu", "Marknadsvärde",
-              "Oreal. P&L (kr)", "Oreal. P&L (%)"]],
-        hide_index=True, width="stretch",
-        column_config={
-            "Snittkurs": st.column_config.NumberColumn(format="%.2f"),
-            "Kurs nu": st.column_config.NumberColumn(format="%.2f"),
-            "Marknadsvärde": st.column_config.NumberColumn(format="%.0f"),
-            "Oreal. P&L (kr)": st.column_config.NumberColumn(format="%+.0f"),
-            "Oreal. P&L (%)": st.column_config.NumberColumn(format="%+.1f%%"),
-        },
+              "Oreal. P&L (kr)", "Oreal. P&L (%)"]]
+        .style.format({
+            "Antal": "{:.0f}".format,
+            "Snittkurs": "{:.2f}".format,
+            "Kurs nu": "{:.2f}".format,
+            "Marknadsvärde": lambda v: f"{v:,.0f} kr".replace(",", " "),
+            "Oreal. P&L (kr)": lambda v: f"{v:+,.0f} kr".replace(",", " "),
+            "Oreal. P&L (%)": "{:+.1%}".format,
+        })
+        .map(_style_pnl, subset=["Oreal. P&L (kr)", "Oreal. P&L (%)"])
     )
+    st.dataframe(styler, hide_index=True, width="stretch")
 
     st.markdown("**Sälj**")
     sc1, sc2 = st.columns([3, 2])
@@ -142,22 +165,35 @@ th = _paper.trades()
 if th.empty:
     st.caption("Inga affärer registrerade.")
 else:
-    disp = th.copy()
+    disp = _paper.trades_with_pnl(th)
     disp["Bolag"] = disp["security_id"].map(names)
     disp["Sida"] = disp["side"].map({"buy": "Köp", "sell": "Sälj"})
     disp["Belopp (kr)"] = disp["shares"] * disp["price_sek"]
-    disp = disp.rename(columns={"trade_date": "Datum", "shares": "Antal", "price_sek": "Kurs"})
-    st.dataframe(
-        disp[["Datum", "Sida", "Bolag", "Antal", "Kurs", "Belopp (kr)"]]
-        .sort_values("Datum", ascending=False),
-        hide_index=True, width="stretch",
-        column_config={
-            "Kurs": st.column_config.NumberColumn(format="%.2f"),
-            "Belopp (kr)": st.column_config.NumberColumn(format="%.0f"),
-        },
+    disp = disp.rename(columns={
+        "trade_date": "Datum", "shares": "Antal", "price_sek": "Kurs",
+        "realized_pnl": "Resultat (kr)", "realized_pnl_pct": "Resultat (%)",
+    })
+    cols = ["Datum", "Sida", "Bolag", "Antal", "Kurs", "Belopp (kr)", "Resultat (kr)", "Resultat (%)"]
+    styler = (
+        disp[cols].sort_values("Datum", ascending=False)
+        .style.format({
+            "Antal": "{:.0f}".format,
+            "Kurs": "{:.2f}".format,
+            "Belopp (kr)": lambda v: f"{v:,.0f} kr".replace(",", " "),
+            "Resultat (kr)": lambda v: "–" if pd.isna(v) else f"{v:+,.0f} kr".replace(",", " "),
+            "Resultat (%)": lambda v: "–" if pd.isna(v) else f"{v:+.1%}",
+        })
+        .map(_style_pnl, subset=["Resultat (kr)", "Resultat (%)"])
     )
+    st.dataframe(styler, hide_index=True, width="stretch")
     if acct["realized_pnl"]:
-        st.caption(f"Realiserad vinst/förlust från stängda positioner: {acct['realized_pnl']:+,.0f} kr".replace(",", " "))
+        rcolor = _pnl_color(acct["realized_pnl"])
+        rtxt = f"{acct['realized_pnl']:+,.0f} kr".replace(",", " ")
+        st.markdown(
+            f"Realiserad vinst/förlust från stängda positioner: "
+            f"<span style='color:{rcolor};font-weight:600'>{rtxt}</span>",
+            unsafe_allow_html=True,
+        )
 
 st.divider()
 with st.expander("Nollställ kontot"):
