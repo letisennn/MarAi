@@ -13,6 +13,8 @@ db_app = typer.Typer(help="database")
 app.add_typer(db_app, name="db")
 disc_app = typer.Typer(help="discovery log / paper trading")
 app.add_typer(disc_app, name="discovery")
+ingest_app = typer.Typer(help="manuellt exporterade register (insider, blankning)")
+app.add_typer(ingest_app, name="ingest")
 
 log = get_logger("marc.cli")
 
@@ -32,11 +34,15 @@ def db_migrate() -> None:
 def pipeline(
     source: str = typer.Option("synthetic", help="synthetic | yfinance"),
     reset: bool = typer.Option(False, "--reset", help="delete the database first"),
+    attention_source: str = typer.Option(
+        "synthetic", "--attention-source",
+        help="synthetic | real (riktig Trends + nyheter; långsamt, flera minuter för hela universumet)",
+    ),
 ) -> None:
     """Run the full v0.1 pipeline end-to-end."""
     from marc.pipeline import run_all
 
-    summary = run_all(source=source, reset=reset)
+    summary = run_all(source=source, reset=reset, attention_source=attention_source)
     typer.echo(json.dumps(summary, indent=2, default=str))
 
 
@@ -91,6 +97,45 @@ def discovery_evaluate() -> None:
 
     with session(read_only=False) as con:
         typer.echo(json.dumps(evaluate(con), indent=2, default=str))
+
+
+@ingest_app.command("insider")
+def ingest_insider(file: str = typer.Argument(..., help="Excel/CSV-export från FI:s PDMR-register")) -> None:
+    """Läs in en manuellt nedladdad PDMR-export (insiderhandel)."""
+    from marc.db.session import session
+    from marc.ingestion.insider_short import load_insider_export
+
+    with session(read_only=False) as con:
+        typer.echo(json.dumps(load_insider_export(con, file), indent=2, default=str))
+
+
+@ingest_app.command("short-interest")
+def ingest_short_interest(
+    file: str = typer.Argument(..., help="Excel/CSV-export från FI:s blankningsregister"),
+) -> None:
+    """Läs in en manuellt nedladdad blankningsregister-export."""
+    from marc.db.session import session
+    from marc.ingestion.insider_short import load_short_interest_export
+
+    with session(read_only=False) as con:
+        typer.echo(json.dumps(load_short_interest_export(con, file), indent=2, default=str))
+
+
+@app.command("llm-narrative")
+def llm_narrative(
+    company: str = typer.Argument(..., help="Bolagsnamn (som i security.name)"),
+    days: int = typer.Option(21, help="hur många dagars rubriker att titta på"),
+) -> None:
+    """Klassificera ett bolags senaste nyhetsrubriker med Claude (kräver ANTHROPIC_API_KEY).
+
+    Undantag från CLAUDE.md regel 4 (Jonas, 2026-09-16). Kostar riktiga pengar
+    per anrop. Inga kvantitativa påståenden begärs eller accepteras — bara
+    sentiment/tema-klassificering av rubriktext.
+    """
+    from marc.llm import classify_narrative_for_company
+
+    result = classify_narrative_for_company(company, days=days)
+    typer.echo(json.dumps(result.__dict__, indent=2, ensure_ascii=False))
 
 
 @app.command("info")

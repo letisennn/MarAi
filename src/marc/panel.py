@@ -46,6 +46,7 @@ def _security_frame(con: duckdb.DuckDBPyConnection, sid: int) -> pd.DataFrame:
     df = df.set_index("session_date")
     df = df.rename(columns={"adj_close_sek": "adj_close", "adj_high_sek": "adj_high", "adj_low_sek": "adj_low"})
     _attach_attention(con, sid, df)
+    _attach_insider_short(con, sid, df)
     return df
 
 
@@ -54,7 +55,7 @@ def _attach_attention(con: duckdb.DuckDBPyConnection, sid: int, df: pd.DataFrame
     en vecka bakåt för att garantera point-in-time (dag t ser veckan före t)."""
     try:
         attn = con.execute(
-            "SELECT session_date, channel, value FROM attention_daily WHERE security_id = ? "
+            "SELECT session_date, channel, value, sentiment FROM attention_daily WHERE security_id = ? "
             "ORDER BY session_date",
             [sid],
         ).df()
@@ -69,10 +70,56 @@ def _attach_attention(con: duckdb.DuckDBPyConnection, sid: int, df: pd.DataFrame
         .shift(1)  # point-in-time: veckan före
         .rename(columns={"search": "attn_search", "news": "attn_news", "forum": "attn_forum"})
     )
+    news_sent = (
+        attn[attn["channel"] == "news"]
+        .drop_duplicates(subset=["session_date"], keep="last")
+        .set_index("session_date")["sentiment"]
+        .sort_index().shift(1)
+        .rename("attn_news_sentiment")
+    )
+    wide = wide.join(news_sent)
     daily = wide.reindex(wide.index.union(df.index)).sort_index().ffill().reindex(df.index)
-    for c in ("attn_search", "attn_news", "attn_forum"):
+    for c in ("attn_search", "attn_news", "attn_forum", "attn_news_sentiment"):
         if c in daily.columns:
             df[c] = daily[c].to_numpy()
+
+
+def _attach_insider_short(con: duckdb.DuckDBPyConnection, sid: int, df: pd.DataFrame) -> None:
+    """Insiderhandel (rullande 90-dagars nettobelopp, kausalt på publiceringsdatum
+    — inte transaktionsdatum) + senast kända blankningsnivå (ffill, kausalt).
+    Manuellt exporterade FI-register (marc.ingestion.insider_short); tomma
+    tabeller ger bara inga kolumner, aldrig ett fel."""
+    try:
+        ins = con.execute(
+            "SELECT coalesce(publication_date, transaction_date) AS d, transaction_type, amount_sek "
+            "FROM insider_transaction WHERE security_id = ?",
+            [sid],
+        ).df()
+    except duckdb.CatalogException:
+        ins = pd.DataFrame()
+    if not ins.empty:
+        ins["d"] = pd.to_datetime(ins["d"])
+        sign = ins["transaction_type"].map({"buy": 1.0, "sell": -1.0}).fillna(0.0)
+        ins["signed"] = sign * pd.to_numeric(ins["amount_sek"], errors="coerce").fillna(0.0)
+        daily_net = ins.dropna(subset=["d"]).groupby("d")["signed"].sum().sort_index()
+        if not daily_net.empty:
+            full = daily_net.reindex(daily_net.index.union(df.index), fill_value=0.0).sort_index()
+            roll90 = full.rolling(90, min_periods=1).sum()
+            df["insider_net_buy_90d_sek"] = roll90.reindex(df.index).to_numpy()
+
+    try:
+        sh = con.execute(
+            "SELECT position_date AS d, pct_of_shares FROM short_interest WHERE security_id = ? "
+            "ORDER BY position_date",
+            [sid],
+        ).df()
+    except duckdb.CatalogException:
+        sh = pd.DataFrame()
+    if not sh.empty:
+        sh["d"] = pd.to_datetime(sh["d"])
+        s = sh.set_index("d")["pct_of_shares"].sort_index()
+        daily_s = s.reindex(s.index.union(df.index)).sort_index().ffill().reindex(df.index)
+        df["short_interest_pct"] = daily_s.to_numpy()
 
 
 def _delist_info(sec: pd.Series, frame: pd.DataFrame) -> DelistInfo | None:

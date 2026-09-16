@@ -17,6 +17,7 @@ from _data import (
     PHASE_SV,
     RULE_SV,
     analogues,
+    attention_source_summary,
     feature_label,
     fmt_feature,
     has_attention,
@@ -279,17 +280,25 @@ with st.expander("Vad som ligger bakom slutsatsen — delpoäng och mätvärden"
     if feats and has_attention():
         st.divider()
         st.markdown("**Uppmärksamhet — sök, forum, nyheter**")
+        src = attention_source_summary()
         at = security_attention(sid)
         if not at.empty and "Sökintresse" in at.columns:
-            st.caption("Sökintresse över tid (0–100, ungefär som Google Trends)")
+            st.caption(f"Sökintresse över tid (0–100) — {src.get('search', 'okänd källa')}")
             st.line_chart(at.set_index("session_date")[["Sökintresse"]], height=200)
             counts = [c for c in ["Foruminlägg/vecka", "Nyhetsrubriker/vecka"] if c in at.columns]
             if counts:
-                st.caption("Foruminlägg och nyhetsrubriker per vecka")
+                st.caption(
+                    f"Foruminlägg ({src.get('forum', 'okänd källa')}) och nyhetsrubriker "
+                    f"({src.get('news', 'okänd källa')}) per vecka"
+                )
                 st.line_chart(at.set_index("session_date")[counts], height=160)
+        sent = feats.get("news_sentiment_z")
+        if sent is not None:
+            ton = "mer positiv än vanligt" if sent >= 0.5 else "mer negativ än vanligt" if sent <= -0.5 else "ungefär som vanligt"
+            st.markdown(f"**Nyhetston just nu:** {ton} (regelbaserad nyckelordsräkning, ingen AI-tolkning)")
         st.caption(
-            "Syntetisk attention-data — inte riktig Google Trends / forum ännu, och "
-            "**inte** konstruerad att leda kursen."
+            "Sök/nyheter kan vara riktig data (se källa ovan); forum är alltid syntetiskt "
+            "tills Reddit-inloggning finns. Ingen attention-kanal är konstruerad att leda kursen."
         )
 
 # =============================================================== mönster

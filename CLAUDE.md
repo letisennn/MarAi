@@ -15,6 +15,21 @@
 > — inte vid — årshögsta) och capar/flaggar uttryckligen bolag som redan är
 > synliga. Discovery Score kvar som referens, inte huvudmått.
 
+> **Utökning 2026-09-16 (Jonas).** Efterfrågade en bred lista marknads-
+> psykologi-signaler (short interest, insiderhandel, analytikerestimat,
+> institutionella flöden, earnings-call-ton, "vad måste hända för att dagens
+> värdering ska vara rimlig" m.fl.) utöver befintlig pris/volym/attention.
+> Kopplat in **riktig** Google Trends (`pytrends`, fullt 5-årsfönster) och
+> **riktiga** nyhetsrubriker (Google News RSS, grunt historiskt djup, byggs
+> upp över tid) som `--attention-source real`, plus regelbaserad
+> nyckelordssentiment på nyheter (`news_sentiment_z`, feature-set v0.3) —
+> allt inom redan godkänd källa (regel 3) och utan LLM (regel 4). Resten av
+> listan (short interest, insiderhandel = nya gratis officiella källor;
+> analytikerestimat/institutionella flöden/ägande = sannolikt betalkälla;
+> nyanserad sentiment/narrativ/earnings-call-ton/omvänd-DCF-värdering =
+> kräver LLM eller ny fundamenta-pelare) kräver beslut — se
+> `docs/data_sources.md` och "Fråga innan" nedan.
+
 ## Vad det här är
 
 Noel AI är ett **privat internt research-verktyg** för två personer (Jonas och
@@ -76,11 +91,17 @@ dokument (structural rerating / multibagger) är struket i sin helhet — se
    (2026-09-08):** Google Trends (pytrends), nyhetsrubriker (t.ex. Google News
    RSS / GDELT), forum/social (t.ex. Reddit API). Varje ny källa loggas i
    `docs/data_sources.md` med licensvillkor först.
-4. **Ingen LLM-analys ännu.** LLM-arbete börjar i v0.5. Attention-, nyhets- och
-   forumsignaler byggs tills dess med enkel frekvens/nyckelord/z-score — ingen
-   modell som "tolkar" text. När LLM:er väl används hanterar de endast
-   ostrukturerad text och hittar aldrig på kvantitativa påståenden; siffror kommer
-   från databasen och statistiklagret.
+4. **LLM-analys — undantag 2026-09-16 (Jonas).** Regeln var "ingen LLM-analys
+   före v0.5"; Jonas gjorde uttryckligen undantag för nyanserad nyhets-
+   sentiment/narrativ (`marc.llm.narrative`, kräver `ANTHROPIC_API_KEY`, körs
+   på begäran per bolag — inte i standardpipelinen). Attention-features
+   (`features/attention.py`) använder fortfarande bara enkel frekvens/
+   nyckelord/z-score, ingen LLM. **Oförändrat, gäller LLM-arbetet också:**
+   modellen hanterar ENDAST ostrukturerad text och hittar ALDRIG på ett
+   kvantitativt påstående (sannolikhet, riktkurs, prognos) — bara en
+   klassificering av vad texten faktiskt säger. Alla siffror i appen kommer
+   från databasen och statistiklagret. Allt annat LLM-arbete (catalyst-
+   klassificering, earnings-call-tonanalys, m.m.) väntar fortfarande till v0.5.
 5. **Point-in-time-disciplin.** Varje feature vid tidpunkt `t` får bara använda
    information som var känd vid `t`. Kurser lagras ojusterade; justeringar
    härleds as-of. Allt som revideras (aktier utestående, fundamenta, estimat)
@@ -132,8 +153,9 @@ src/marc/
   ingestion/   per-källa-adaptrar -> immutabla rårader + vintage
   reference/   securities, ISIN-xref-historik, tidsvarierande universum, corp actions
   cleaning/    validering, FX till basvaluta, as-of justeringsfaktorer, delisting-stitching
-  ingestion/attention.py  syntetisk search/news/forum -> attention_daily (riktiga adaptrar = stubbar)
-  features/    rena kausala feature-funktioner (pris/volym + attention) -> feature_panel (versionerat, v0.2)
+  ingestion/attention.py  search/news/forum -> attention_daily. search+news RIKTIGA (--attention-source real: pytrends/Google News RSS), forum syntetiskt (Reddit stub, kräver credentials)
+  ingestion/insider_short.py  insiderhandel + blankning (FI-register, manuellt exporterade filer -> `marc ingest insider|short-interest`)
+  features/    rena kausala feature-funktioner (pris/volym + attention + insider/blankning) -> feature_panel (versionerat, v0.4). features/ownership.py = insider/blankning
   targets/     forward returns / events -> target_panel (framtida data by design; aldrig en feature)
   signals/     regelbaserad signalgenerering -> signal_log (regler, inga skattade vikter)
   score/       PRELIMINÄR "Discovery Score" (config/score.yml) -> hur starkt ett bolag rör sig JUST NU (momentum/närhet till högsta/volym). Referensmått, inte huvudrankning (se discovery/setup.py).
@@ -144,7 +166,7 @@ src/marc/
   pipeline.py  end-to-end-orkestrering (marc pipeline)
   backtest/    event study + portföljformering — fortf. skelett (quintil/lift finns i stats)
   ml/          v0.7 — endast skelett
-  llm/         v0.5 — endast skelett
+  llm/         v0.5, MED UNDANTAG 2026-09-16: narrative.py klassificerar nyhetssentiment/tema på begäran (kräver ANTHROPIC_API_KEY, kostar per anrop). Övrigt LLM-arbete fortfarande skelett.
   reporting/   figurer/tabeller för appen och write-ups (skelett)
 app/           Streamlit-sidor: Home, Universe, Security, Experiments, Signals (ingen affärslogik, read-only)
 config/        universe.yml (universumdefinition), targets.yml (target-parametrar), sources.yml, logging.yml
@@ -205,9 +227,16 @@ som kör hela pipelinen i en temp-DB): `uv run pytest`.
 
 ## Fråga innan
 
-- Inkoppling av någon **betald** datakälla.
+- Inkoppling av någon **betald** datakälla (2026-09-16: Jonas tackade nej till
+  Börsdata för analytikerestimat/institutionella flöden/ägande "inte just
+  nu" — fråga igen om det blir aktuellt).
 - Att lägga till en ny extern datakälla utöver de godkända i regel 3
-  (licens-/ToS-kontroll först, loggas i `docs/data_sources.md`).
-- Att starta LLM- eller ML-arbete före dess version.
+  (licens-/ToS-kontroll först, loggas i `docs/data_sources.md`). Insider
+  (FI PDMR) och blankning (FI blankningsregister) godkända 2026-09-16.
+- Att starta ML-arbete, eller LLM-arbete UTÖVER det uttryckliga undantaget i
+  regel 4 (nyhets-narrativ/sentiment på begäran).
 - Att ta bort "preliminär/ovaliderad"-märkningen från en score eller
   uppsideuppskattning (kräver att den först validerats enligt regel 1–2).
+- Att bygga `marc.valuation` (omvänd DCF / "vad måste hända för att dagens
+  värdering ska vara rimlig") innan en fundamenta-datakälla finns — godkänt
+  som NÄSTA STEG när/om en sådan källa finns (2026-09-16, Jonas), inte innan.

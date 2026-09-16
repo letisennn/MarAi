@@ -61,20 +61,74 @@ exchange calendars · a survivorship-complete universe list.
 
 ## Attention / news / forum — godkänt att börja bygga (Jonas 2026-09-08)
 
-Tidigarelagt från v0.2–0.4. **Syntetisk källa först** (`marc.ingestion.attention.
-SyntheticAttentionSource`, offline, deterministisk — INTE riktig data), som skriver
-`attention_daily` (kanaler: `search` / `news` / `forum`). Kausala features:
-`search_level_z`, `search_accel`, `search_abnormal`, `forum_buzz_z`, `forum_accel`,
-`news_rate_z` (feature-set `v0.2`). Riktiga adaptrar kopplas in som `--source`:
+Tidigarelagt från v0.2–0.4. **Syntetisk källa** (`marc.ingestion.attention.
+SyntheticAttentionSource`, offline, deterministisk — INTE riktig data) är
+fortfarande standard (`--attention-source synthetic`, default). Kausala
+features: `search_level_z`, `search_accel`, `search_abnormal`, `forum_buzz_z`,
+`forum_accel`, `news_rate_z`, `news_sentiment_z` (feature-set `v0.3`).
 
-| Kanal | Riktig källa (planerad) | Kostnad | ToS / begränsning | Status |
+**Ändring 2026-09-16 (Jonas): riktiga Trends + nyheter inkopplade** som
+`--attention-source real` (opt-in, inte default — tar flera minuter för hela
+universumet):
+
+| Kanal | Källa | Kostnad | Djup | Status |
 |---|---|---|---|---|
-| search | `pytrends` (Google Trends) | Gratis | Ostabil normalisering, sampling, rate-limit; inofficiellt API | Stub (`ingestion/trends_source.py`) |
-| news | Google News RSS per bolagsnamn / GDELT 2.0 | Gratis | RSS: personligt bruk; GDELT: öppet, brusigt | Stub (`ingestion/news_source.py`) |
-| forum | Reddit officiella API (r/aktier m.fl.) | Gratis (begränsad) | Kräver app-credentials; Pushshift nedlagt → tunn historik; GDPR: hasha user-id | Stub (`ingestion/forum_source.py`) |
+| search | `pytrends` (Google Trends) | Gratis | **Fullt** — en pull per bolag över `today 5-y`, undviker normaliserings-stitching mellan flera pulls | **Riktig** (`ingestion/trends_source.py`) |
+| news | Google News RSS per bolagsnamn | Gratis | **Grunt** — RSS-sökningen ger bara ett nuvarande fönster av träffar (typiskt senaste veckorna/månaderna, ibland djupare för lågbevakade bolag). Byggs upp gradvis över kalendertid vid upprepade körningar UTAN `--reset` (upsert, skriver inte över gamla veckor) | **Riktig, grunt** (`ingestion/news_source.py`) |
+| forum | Reddit officiella API (r/aktier m.fl.) | Gratis (begränsad) | — | Fortfarande stub — kräver app-credentials (client_id/secret) som bara Jonas kan skapa på reddit.com/prefs/apps |
+
+**ToS-notis för Google News RSS** (regel 11, läs innan användning): flödets
+copyright-text säger uttryckligen "personal, non-commercial use ... within a
+personal feed reader". Det här är ett privat tvåpersoners forskningsverktyg
+som bara aggregerar rubrikräkning + enkel nyckelordsstatistik (republicerar
+inte artikeltext) — men notisen är strikt formulerad; avvägningen läggs upp
+här synligt i stället för att gömmas.
+
+**Nyhetssentiment** (`attn_news_sentiment` → `news_sentiment_z`) är regelbaserad
+räkning av positiva/negativa svenska finansord i rubriktext (se
+`ingestion/news_source._POS_WORDS`/`_NEG_WORDS`) — **INGEN LLM** (regel 4,
+gäller till v0.5). Grov med flit: en riktningsindikation, inte en tolkning.
 
 Nordiska forum (Placera, Shareville, Di.se) — ToS varierar, scrapa inte där det är
 förbjudet (regel 11). Kollas per källa innan inkoppling.
+
+### Insiderhandel + blankning — godkänt och byggt (Jonas 2026-09-16)
+
+Båda gratis, officiella svenska register (FI kräver bara källhänvisning). FI
+publicerar dem via sökportaler (marknadssok.fi.se) utan en dokumenterad
+bulk-API — mönstret är därför **manuell export, automatiserad inläsning**:
+ladda ner en Excel/CSV via portalens egen exportfunktion, kör
+`marc ingest insider <fil>` / `marc ingest short-interest <fil>`. Skriver
+`insider_transaction` / `short_interest` (migration `0005_insider_short.sql`)
+→ kausala features `insider_net_buy_z` (rullande 90-dagars nettobelopp,
+beräknat på PUBLICERINGSDATUM inte transaktionsdatum — point-in-time, regel
+5), `short_interest_level`, `short_interest_accel` (feature-set v0.4).
+
+**Kolumnmappningen är satt efter FI:s dokumenterade fält, inte verifierad mot
+en riktig export än** — `marc.ingestion.insider_short._find_col` ger ett
+tydligt fel som listar filens faktiska kolumner om mappningen inte stämmer,
+så den är snabb att justera första gången en riktig fil körs igenom.
+
+### Nyanserad nyhetssentiment via LLM — undantag byggt (Jonas 2026-09-16)
+
+`marc.llm.narrative` — Claude (Haiku) klassificerar ett bolags senaste
+nyhetsrubriker (hämtade färskt via Google News RSS) till sentiment + kort
+tema, på begäran (`marc llm-narrative "<bolag>"`), kräver `ANTHROPIC_API_KEY`.
+**Kärnregeln kvarstår:** modellen hanterar bara rubriktext och får aldrig
+uppge en sannolikhet/riktkurs/prognos — bara vad texten faktiskt säger.
+Kostar riktiga pengar per anrop (litet, per token) — inte del av
+standardpipelinen.
+
+### Ännu inte inkopplat — kräver betalkälla eller ny fundamenta-pelare
+
+Jonas svar 2026-09-16: **avvaktar** en betalkälla för nu ("inte just nu").
+
+| Efterfrågat | Bedömning | Väg framåt |
+|---|---|---|
+| Analytikerestimat, riktkurser, estimatrevideringar | Tunn gratis-historik; rimlig Nordic small-cap-täckning kräver en betalkälla (t.ex. Börsdata ~200 kr/mån) | Kräver betalkälle-OK (avvaktar) |
+| Institutionella flöden, ägarförändringar | Mest betalt/partiellt (t.ex. Modular Finance) | Kräver betalkälle-OK (avvaktar) |
+| Earnings-call-ton | Transkript existerar i praktiken inte för nordiska små-/mikrobolag | Sannolikt inte byggbart oavsett budget |
+| "Vad måste hända för att dagens värdering ska vara rimlig?" (omvänd DCF) | Kräver fundamenta (omsättning/vinst/tillväxt) — helt ny datapelare, finns inte i schemat idag | Godkänt som NÄSTA STEG när en fundamenta-källa finns (Jonas) — ny modul `marc.valuation`, inte startad |
 
 ## Later versions (summary)
 

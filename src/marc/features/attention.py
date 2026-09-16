@@ -13,27 +13,13 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from marc.features._common import col_or_nan as _col
+from marc.features._common import rolling_accel as _accel
+from marc.features._common import rolling_z as _z
+
 _W = 130   # ~26 veckor handelsdagar för baslinjefönstret
 _M = 20    # ~4 veckor
 _Q = 60    # ~12 veckor
-
-
-def _col(df: pd.DataFrame, name: str) -> pd.Series:
-    if name in df.columns:
-        return pd.to_numeric(df[name], errors="coerce")
-    return pd.Series(np.nan, index=df.index, dtype="float64")
-
-
-def _z(s: pd.Series, window: int) -> pd.Series:
-    mu = s.rolling(window, min_periods=window // 2).mean()
-    sd = s.rolling(window, min_periods=window // 2).std()
-    return (s - mu) / sd.replace(0.0, np.nan)
-
-
-def _accel(s: pd.Series, fast: int, slow: int) -> pd.Series:
-    f = s.rolling(fast, min_periods=max(2, fast // 2)).mean()
-    sl = s.rolling(slow, min_periods=max(2, slow // 2)).mean()
-    return f / sl.replace(0.0, np.nan) - 1.0
 
 
 def search_level_z(df: pd.DataFrame) -> pd.Series:
@@ -68,4 +54,12 @@ def forum_accel(df: pd.DataFrame) -> pd.Series:
 
 def news_rate_z(df: pd.DataFrame) -> pd.Series:
     s = _col(df, "attn_news")
+    return _z(s, _W) if s.notna().any() else s
+
+
+def news_sentiment_z(df: pd.DataFrame) -> pd.Series:
+    """Z-score av nyckelordsbaserad nyhetssentiment (regel 4: ingen LLM).
+    NaN där ingen riktig nyhetsdata finns än (syntetisk källa sätter aldrig
+    sentiment) — värmer upp i takt med att verklig historik samlas."""
+    s = _col(df, "attn_news_sentiment")
     return _z(s, _W) if s.notna().any() else s

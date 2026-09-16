@@ -9,7 +9,7 @@ from pandas.testing import assert_frame_equal
 from marc.features.registry import compute_feature_frame
 
 _ATTN = ["search_level_z", "search_accel", "search_abnormal",
-         "forum_buzz_z", "forum_accel", "news_rate_z"]
+         "forum_buzz_z", "forum_accel", "news_rate_z", "news_sentiment_z"]
 
 
 def _frame(n: int = 600, *, attention: bool) -> pd.DataFrame:
@@ -34,6 +34,7 @@ def _frame(n: int = 600, *, attention: bool) -> pd.DataFrame:
         df["attn_search"] = np.clip(wk + rng.normal(0, 3, n), 0, 100)
         df["attn_forum"] = np.clip(wk / 10 + rng.normal(0, 1, n), 0, None)
         df["attn_news"] = np.clip(wk / 25 + rng.normal(0, 0.5, n), 0, None)
+        df["attn_news_sentiment"] = np.clip(rng.normal(0, 0.4, n), -1, 1)
     return df
 
 
@@ -56,3 +57,4 @@ def test_attention_features_have_signal_when_present() -> None:
     out = compute_feature_frame(_frame(n=600, attention=True))
     assert out["search_level_z"].notna().sum() > 100
     assert out["search_abnormal"].dropna().isin([0.0, 1.0]).all()
+    assert out["news_sentiment_z"].notna().sum() > 100

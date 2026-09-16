@@ -15,9 +15,9 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from marc.features import attention, price, volatility, volume
+from marc.features import attention, ownership, price, volatility, volume
 
-FEATURE_SET_VERSION = "v0.2"
+FEATURE_SET_VERSION = "v0.4"
 
 # name -> callable(df) -> Series
 FEATURES: dict[str, object] = {
@@ -46,6 +46,11 @@ FEATURES: dict[str, object] = {
     "forum_buzz_z": attention.forum_buzz_z,
     "forum_accel": attention.forum_accel,
     "news_rate_z": attention.news_rate_z,
+    "news_sentiment_z": attention.news_sentiment_z,
+    # insider / blankning (manuellt exporterade FI-register, se ingestion/insider_short.py)
+    "insider_net_buy_z": ownership.insider_net_buy_z,
+    "short_interest_level": ownership.short_interest_level,
+    "short_interest_accel": ownership.short_interest_accel,
 }
 
 FEATURE_NAMES = list(FEATURES)

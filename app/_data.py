@@ -118,6 +118,7 @@ FEATURE_SV: dict[str, tuple[str, str]] = {
     "amihud_20d": ("Amihud-illikviditet (20d)", "num"),
     "log_mktcap": ("Börsvärde (log)", "num"),
     "log_price_local": ("Kurs (log, lokal)", "num"),
+    "news_sentiment_z": ("Nyhetston (nyckelordsbaserad, z-score)", "num"),
 }
 
 # regelnyckel -> klarspråk. Villkoren är förregistrerade i docs/experiments/E1.md §E1d.
@@ -508,11 +509,37 @@ def has_attention() -> bool:
         return False
 
 
+_ATTN_SOURCE_SV = {
+    "pytrends": "riktig Google Trends-data",
+    "googlenews-rss": "riktiga nyhetsrubriker (Google News)",
+    "synthetic": "syntetisk data",
+}
+
+
+@st.cache_data(ttl=60)
+def attention_source_summary() -> dict:
+    """Vilken källa (riktig/syntetisk) som senast skrev varje attention-kanal."""
+    try:
+        df = q(
+            """
+            SELECT channel, source, max(ingested_at) AS last_ingested
+            FROM attention_daily GROUP BY 1, 2
+            QUALIFY row_number() OVER (PARTITION BY channel ORDER BY last_ingested DESC) = 1
+            """
+        )
+    except Exception:  # noqa: BLE001
+        return {}
+    out = {}
+    for _, r in df.iterrows():
+        out[r["channel"]] = _ATTN_SOURCE_SV.get(r["source"], r["source"])
+    return out
+
+
 @st.cache_data(ttl=60)
 def security_attention(sid: int) -> pd.DataFrame:
     """Vecko-serie per kanal (search 0–100, news/forum antal/vecka) för ett bolag."""
     df = q(
-        "SELECT session_date, channel, value FROM attention_daily "
+        "SELECT session_date, channel, value, sentiment FROM attention_daily "
         "WHERE security_id = ? ORDER BY session_date",
         (sid,),
     )
@@ -520,9 +547,16 @@ def security_attention(sid: int) -> pd.DataFrame:
         return df
     df["session_date"] = pd.to_datetime(df["session_date"])
     wide = df.pivot_table(index="session_date", columns="channel", values="value", aggfunc="last")
-    return wide.rename(
+    wide = wide.rename(
         columns={"search": "Sökintresse", "news": "Nyhetsrubriker/vecka", "forum": "Foruminlägg/vecka"}
-    ).reset_index()
+    )
+    news_sent = (
+        df[df["channel"] == "news"].drop_duplicates(subset=["session_date"], keep="last")
+        .set_index("session_date")["sentiment"]
+    )
+    if news_sent.notna().any():
+        wide["Nyhetston"] = news_sent
+    return wide.reset_index()
 
 
 @st.cache_data(ttl=60)

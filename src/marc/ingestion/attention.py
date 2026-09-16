@@ -79,6 +79,9 @@ def write_attention_batch(con: duckdb.DuckDBPyConnection, batch: RawAttentionBat
          None if batch.params is None else json.dumps(batch.params), str(raw_dir)],
     )
 
+    if "sentiment" not in df.columns:
+        df["sentiment"] = pd.NA
+
     sec = con.execute("SELECT isin, security_id FROM security").df()
     m = df.merge(sec, on="isin", how="left")
     rejected = int(m["security_id"].isna().sum())
@@ -89,13 +92,13 @@ def write_attention_batch(con: duckdb.DuckDBPyConnection, batch: RawAttentionBat
     ok["event_time"] = pd.to_datetime(ok["session_date"]) + pd.Timedelta(hours=12)
 
     con.register("attn_df", ok[["security_id", "session_date", "channel", "value",
-                                "n_mentions", "source", "vintage_id", "event_time"]])
+                                "n_mentions", "sentiment", "source", "vintage_id", "event_time"]])
     con.execute(
         """
         INSERT OR REPLACE INTO attention_daily
-        (security_id, session_date, channel, value, n_mentions, source, vintage_id,
+        (security_id, session_date, channel, value, n_mentions, sentiment, source, vintage_id,
          event_time, ingested_at)
-        SELECT security_id, session_date, channel, value, n_mentions, source, vintage_id,
+        SELECT security_id, session_date, channel, value, n_mentions, sentiment, source, vintage_id,
                event_time, now()
         FROM attn_df
         """
