@@ -8,13 +8,36 @@ in — free or paid — without a green light. Verify licensing before adding.
 Den syntetiska källan var för trubbig för att arbeta mot (allt platt, inga
 rörelser, stannar i studieperiodens slut). **yfinance (Yahoo Finance) är nu
 standardkälla** för `marc pipeline` (`--source synthetic` finns kvar för offline/
-demo). Seed-universumet (`data/seed/securities.csv`) är ~80 riktiga nordiska
-namn — Stockholm-tunga, med de volatila First North/Spotlight-namnen. Nyckel =
-Yahoo-ticker (inte riktig ISIN). Small-cap-taket i `config/universe.yml` höjt
-1.7bn → **5bn SEK** (Nasdaq-gränsen var för snäv för ett användbart universum).
-Kvarstående brist: Yahoo tappar avnoterade tickers, så universumet är fortfarande
-**survivorship-biased** — samma gating som förr, ingen slutsats är
-survivorship-ren förrän Börsdata/EODHD är påkopplad.
+demo). Nyckel = Yahoo-ticker (inte riktig ISIN). Small-cap-taket i
+`config/universe.yml` höjt 1.7bn → **5bn SEK** (Nasdaq-gränsen var för snäv för
+ett användbart universum). Kvarstående brist: Yahoo tappar avnoterade tickers,
+så universumet är fortfarande **survivorship-biased** — samma gating som förr,
+ingen slutsats är survivorship-ren förrän Börsdata/EODHD är påkopplad.
+
+## Ändring 2026-09-16 (Jonas: "det ska va hela svenska börsen") — brett seed-universum
+
+Seed-universumet gick från ~80 handplockade namn till **671 riktiga
+Stockholmsnoterade bolag** (432 blir kvar i panelen efter historik-/
+likviditetskrav). Genererat programmatiskt, inte handskrivet:
+
+- Källa: **Yahoo Finances egen screener-API** via `yfinance.screen` /
+  `EquityQuery('eq', ['region','se'])` — samma redan godkända/dokumenterade
+  källa som prisdatan (rad 1 ovan), inte en ny extern källa och ingen skrapning
+  av tredjepartssajter. Paginerad över alla ~1179 svenska instrument Yahoo
+  känner till (`exchange=STO`).
+- Filter: `quoteType=EQUITY`, `currency=SEK`, `marketCap` ≤ 10 mdr SEK (utesluter
+  ~500 large caps/mega caps som ändå aldrig skulle antas i ett small/mid-cap-
+  universum — se regel 6), samt bort med teckningsrätter/BTA/ETF/ETN/hävstånds-
+  certifikat (`Xtrackers`, `UCITS`, `Bull`/`Bear`, `-BTA`/`-TR`/`-RT`/`XBT` osv.)
+  som Yahoo felaktigt taggar som `EQUITY`.
+- `sharesOutstanding` och `marketCap` kommer direkt från screenern (en snapshot,
+  inte bitemporalt — samma förenkling som tidigare seed-data).
+- `mic`/`market_segment` sätts schablonmässigt (`XSTO`/`main`) — screenern
+  skiljer inte på huvudlista/First North/Spotlight. Påverkar bara metadata, inte
+  cap-gränserna (de räknas på faktisk market cap, inte listnamn).
+- Genererande skript kördes en gång manuellt (inte i pipeline/CI) — se
+  `docs/roadmap.md` "Tillägg 2026-09-16" om det ska bli ett repeterbart steg
+  (t.ex. `marc universe refresh-seed`).
 
 ## v0.1 needs only
 

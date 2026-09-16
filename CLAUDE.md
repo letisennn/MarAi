@@ -165,12 +165,14 @@ uv run streamlit run app/Home.py             # webbappen (läser data/marc.duckd
 ```
 
 Delkommandon: `marc db migrate`, `marc panel`, `marc stats`, `marc signals`,
-`marc info`. **Standard är `yfinance`** (2026-09-08, Jonas) — riktig dagsdata från
-Yahoo Finance för ~80 riktiga nordiska namn i `data/seed/securities.csv`,
-survivorship-biased och rate-limitad. `--source synthetic` = deterministisk
-pseudo-slump, ingen marknadsdata, finns för att köra offline / demo:a systemet.
-`study_end: null` i `config/universe.yml` ⇒ panelen körs alltid fram till senaste
-handelsdag.
+`marc info`, `marc discovery snapshot|evaluate`. **Standard är `yfinance`**
+(2026-09-08, Jonas) — riktig dagsdata från Yahoo Finance. Seed-universumet
+(`data/seed/securities.csv`, 2026-09-16) är **671 riktiga Stockholmsnoterade
+bolag** (upp till 10 mdr SEK börsvärde), genererat från Yahoo Finances egen
+screener-API (se `docs/data_sources.md`), survivorship-biased och rate-limitad.
+`--source synthetic` = deterministisk pseudo-slump, ingen marknadsdata, finns
+för att köra offline / demo:a systemet. `study_end: null` i
+`config/universe.yml` ⇒ panelen körs alltid fram till senaste handelsdag.
 
 Snabb testdelmängd: `uv run pytest tests/test_features_causality.py
 tests/test_targets.py tests/test_layering.py`. Full svit (inkl. integrationstest
