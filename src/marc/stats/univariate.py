@@ -24,6 +24,10 @@ _N_QUINTILES = 5
 _BOOT = 300
 _BLOCK = 8
 
+# 2026-09-19 (Jonas): svep även den vektoriserade Uppbyggnadspoängen genom
+# samma test som de råa features — inte bara handsatta vikter som tas på tro.
+_EXTRA_SCORE_FEATURES = ["setup_score", "setup_score_ungated"]
+
 
 def _weekly_ic(df: pd.DataFrame, feat: str, tgt: str) -> pd.Series:
     out = {}
@@ -65,7 +69,7 @@ def _quintile_means(df: pd.DataFrame, feat: str, tgt: str) -> list[float] | None
 
 def _run_split(con, eid, df: pd.DataFrame, oos: bool, tag: str) -> None:
     events = [e["name"] for e in targets_config()["events"]]
-    for feat in FEATURE_NAMES:
+    for feat in [*FEATURE_NAMES, *_EXTRA_SCORE_FEATURES]:
         if feat not in df.columns:
             continue
         for h in _RET_HORIZONS:

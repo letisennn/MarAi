@@ -10,6 +10,7 @@ from _data import (
     EVENT_SHORT,
     RULE_SV,
     active_signals,
+    best_rule_horizon,
     is_synthetic,
     last_signal_date,
     latest_obs_date,
@@ -17,16 +18,32 @@ from _data import (
     rule_outcome_stats,
 )
 
+
+def _horizon_caption(rk: str) -> str:
+    bh = best_rule_horizon(rk)
+    if bh is None:
+        return "⏱ Tidshorisont: inget tidsfönster (1 v–9 mån) visar ännu en tillförlitlig avvikelse — obevisat."
+    return f"⏱ Tidshorisont: **{bh['label']}** (kortaste fönster med tillförlitlig avvikelse, {bh['n']} träffar)"
+
+
 st.title("Signaler")
+st.warning(
+    "Forskarvy. Träffkvoterna här räknas från ett 5-dagarsmedel (P0), inte från köpkursen — det "
+    "överdriver vinsten för mönster som fångar bolag efter en uppgång (utbrott). För vad ett läge "
+    "betytt för en *köpare*: se guiderna på Market Radar och Rörelser & utbrott (E1e).",
+    icon="⚠️",
+)
 
 st.markdown(
-    "En **signal** = ett bolag matchar ett av tre **förregistrerade mönster**. "
+    "En **signal** = ett bolag matchar ett av fyra **förregistrerade mönster**. "
     "Inga skattade vikter, ingen poäng — villkoren är bestämda i förväg. Att en "
     "regel lyser säger *ingenting säkert* om vad som kommer hända; det är ett "
-    "mönster vars informationsvärde ska testas."
+    "mönster vars informationsvärde ska testas. Tidshorisonten nedan är INTE en "
+    "rekommenderad hålltid — olika mönster löser sig olika fort, så den är räknad "
+    "fram per mönster, inte samma tal för alla."
 )
-for meta in RULE_SV.values():
-    st.markdown(f"**{meta['titel']}**  \n{meta['villkor']}")
+for rk, meta in RULE_SV.items():
+    st.markdown(f"**{meta['titel']}**  \n{meta['villkor']}  \n{_horizon_caption(rk)}")
 
 if is_synthetic():
     st.warning("Syntetisk data — siffrorna nedan är historik på påhittade kurser, inte resultat.")
@@ -48,11 +65,13 @@ if act.empty:
     st.info(f"Ingen regel har lyst de senaste {weeks} veckorna.")
 else:
     a = act.copy()
-    a["Datum"] = pd.to_datetime(a["as_of_date"]).dt.strftime("%Y-%m-%d")
+    a["Signal utfärdad"] = pd.to_datetime(a["as_of_date"]).dt.strftime("%Y-%m-%d")
     a["Mönster"] = a["rule"].map({k: v["titel"] for k, v in RULE_SV.items()}).fillna(a["rule"])
+    _hz_by_rule = {rk: (best_rule_horizon(rk) or {}).get("label", "obevisat ännu") for rk in RULE_SV}
+    a["Tidshorisont"] = a["rule"].map(_hz_by_rule)
     a = a.rename(columns={"name": "Bolag", "country": "Land", "sector": "Sektor"})
     st.dataframe(
-        a[["Datum", "Bolag", "Land", "Sektor", "Mönster"]],
+        a[["Signal utfärdad", "Bolag", "Land", "Sektor", "Mönster", "Tidshorisont"]],
         hide_index=True,
         width="stretch",
         height=360,
@@ -66,9 +85,10 @@ else:
 st.divider()
 st.subheader("Vad har hänt historiskt efter varje mönster?")
 st.caption(
-    "För varje mönster: hur ofta en stor uppgång följde inom olika tidsfönster "
-    "(**blått**), jämfört med hur ofta samma uppgång sker för vilket bolag som "
-    "helst samma vecka (**grått**). Historik på syntetisk data — inte en prognos."
+    "Tidshorisonten nedan är räknad fram per mönster — det kortaste tidsfönstret "
+    "(1 vecka–9 månader) där mönstret historiskt visat en tillförlitlig avvikelse "
+    "från basnivån. Inte en rekommenderad hålltid. Alla tidsfönster finns i grafen "
+    "under varje mönster."
 )
 
 stats = rule_outcome_stats()
@@ -85,26 +105,46 @@ else:
             if n < 20:
                 st.caption("För få träffar för att tolka utfallet.")
                 continue
-            long_rows = []
-            for _, r in rs.iterrows():
-                lbl = EVENT_SHORT.get(r["horizon"], r["horizon"])
-                long_rows.append({"x": lbl, "grp": "Efter signalen", "andel": r["hit_rate"]})
-                long_rows.append({"x": lbl, "grp": "Normalt", "andel": r["base_rate"]})
-            cdf = pd.DataFrame(long_rows)
-            fig = px.bar(
-                cdf, x="x", y="andel", color="grp", barmode="group",
-                color_discrete_map={"Efter signalen": "#2f6fed", "Normalt": "#b7bec9"},
-                labels={"andel": "andel av fallen", "x": "", "grp": ""},
-            )
-            fig.update_yaxes(tickformat=".0%")
-            fig.update_layout(height=280, margin=dict(l=0, r=0, t=6, b=0), legend=dict(orientation="h"))
-            st.plotly_chart(fig, width="stretch")
-            r90 = rs[rs["horizon"] == "90d"]
-            if not r90.empty:
-                st.caption(
-                    f"Största rörelse inom ~4 månader efteråt (median): "
-                    f"upp {r90['med_max_ret'].iloc[0]:+.0%}, ned {r90['med_max_dd'].iloc[0]:+.0%}."
+            bh = best_rule_horizon(rk)
+            if bh is None:
+                st.warning(
+                    "Inget tidsfönster (1 vecka–9 månader) visar ännu en tillförlitlig "
+                    "avvikelse från basnivån för det här mönstret — obevisat, inte bekräftat "
+                    "obrukbart. Se grafen nedan för hela bilden.",
+                    icon="🚫",
                 )
+            else:
+                mult = bh["lift"]
+                comp = (
+                    f"ungefär {mult:.1f} gånger så ofta som normalt ({bh['base_rate']:.0%})" if mult >= 1.25
+                    else f"ungefär lika ofta som normalt ({bh['base_rate']:.0%})"
+                )
+                st.markdown(
+                    f"När mönstret lyst har en uppgång på **minst +50 % inom {bh['label']}** "
+                    f"— det kortaste fönster där mönstret visar en tillförlitlig avvikelse — "
+                    f"följt i **{bh['hit_rate']:.0%}** av fallen — {comp}."
+                )
+                if bh.get("med_max_ret") is not None:
+                    st.markdown(
+                        f"Största rörelse inom samma period (median i historiken): "
+                        f"upp **{bh['med_max_ret']:+.0%}**, ned **{bh['med_max_dd']:+.0%}**."
+                    )
+
+            with st.expander("Visa alla tidsfönster (graf)"):
+                long_rows = []
+                for _, r in rs.iterrows():
+                    lbl = EVENT_SHORT.get(r["horizon"], r["horizon"])
+                    long_rows.append({"x": lbl, "grp": "Efter signalen", "andel": r["hit_rate"]})
+                    long_rows.append({"x": lbl, "grp": "Normalt", "andel": r["base_rate"]})
+                cdf = pd.DataFrame(long_rows)
+                fig = px.bar(
+                    cdf, x="x", y="andel", color="grp", barmode="group",
+                    color_discrete_map={"Efter signalen": "#2f6fed", "Normalt": "#b7bec9"},
+                    labels={"andel": "andel av fallen", "x": "", "grp": ""},
+                )
+                fig.update_yaxes(tickformat=".0%")
+                fig.update_layout(height=280, margin=dict(l=0, r=0, t=6, b=0), legend=dict(orientation="h"))
+                st.plotly_chart(fig, width="stretch")
 
 # --------------------------------------------------------- loggen
 st.divider()
@@ -114,7 +154,7 @@ with st.expander("Signalloggen (senaste 100)"):
         st.write("Tom.")
     else:
         lg = lg.copy()
-        lg["Datum"] = pd.to_datetime(lg["as_of_date"]).dt.strftime("%Y-%m-%d")
+        lg["Signal utfärdad"] = pd.to_datetime(lg["as_of_date"]).dt.strftime("%Y-%m-%d")
         lg["Mönster"] = lg["rule"].map({k: v["titel"] for k, v in RULE_SV.items()}).fillna(lg["rule"])
         lg = lg.rename(columns={"name": "Bolag"})
-        st.dataframe(lg[["Datum", "Bolag", "Mönster"]], hide_index=True, width="stretch")
+        st.dataframe(lg[["Signal utfärdad", "Bolag", "Mönster"]], hide_index=True, width="stretch")

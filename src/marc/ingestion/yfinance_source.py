@@ -37,8 +37,9 @@ class YFinancePriceSource:
         tickers = list(by_ticker)
 
         out: list[pd.DataFrame] = []
-        for i in range(0, len(tickers), _BATCH):
-            chunk = tickers[i : i + _BATCH]
+        got: set[str] = set()
+
+        def _pull(chunk: list[str]) -> None:
             try:
                 raw = yf.download(
                     chunk, start=str(start), end=str(end),
@@ -47,10 +48,10 @@ class YFinancePriceSource:
                 )
             except Exception as exc:  # noqa: BLE001 - third-party, network
                 log.warning("yfinance batch %s failed: %s", chunk[:3], exc)
-                continue
+                return
             if raw is None or raw.empty:
-                log.warning("yfinance batch %d-%d: no data", i, i + len(chunk))
-                continue
+                log.warning("yfinance batch %s...: no data", chunk[:3])
+                return
 
             for tkr in chunk:
                 try:
@@ -74,7 +75,24 @@ class YFinancePriceSource:
                     log.warning("yfinance %s: unexpected columns %s", tkr, list(sub.columns))
                     continue
                 out.append(sub[_COLS])
+                got.add(tkr)
+
+        for i in range(0, len(tickers), _BATCH):
+            _pull(tickers[i : i + _BATCH])
             time.sleep(1.0)  # be polite between batches
+
+        # Yahoo tappar ibland ett helt gäng tickers tillfälligt ("possibly delisted")
+        # trots att de finns — 2026-09-23 föll 67 av 671 bort en körning och kom
+        # tillbaka nästa. Ta om de saknade i mindre omgångar innan vi ger upp.
+        for attempt in range(2):
+            missing = [t for t in tickers if t not in got]
+            if not missing:
+                break
+            log.info("yfinance retry %d: %d tickers saknas, försöker igen", attempt + 1, len(missing))
+            time.sleep(10.0)
+            for i in range(0, len(missing), 8):
+                _pull(missing[i : i + 8])
+                time.sleep(2.0)
 
         rows = pd.concat(out, ignore_index=True) if out else pd.DataFrame(columns=_COLS)
         rows = rows.dropna(subset=["close"])

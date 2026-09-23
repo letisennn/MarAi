@@ -7,6 +7,7 @@ kolumnnamn / mått till klarspråk för gränssnittet.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -90,6 +91,16 @@ EVENT_SHORT = {
 
 _HZ_ORDER = {"5d": 0, "20d": 1, "30d": 2, "60d": 3, "90d": 4, "180d": 5}
 
+# plain-language kalenderdagar per horisont, för texter som inte redan har EVENT_SV
+_HZ_LABEL_SV = {
+    "5d": "~1 vecka (5 handelsdagar)",
+    "20d": "~1 månad (20 handelsdagar)",
+    "30d": "~6 veckor (30 handelsdagar)",
+    "60d": "~3 månader (60 handelsdagar)",
+    "90d": "~4 månader (90 handelsdagar)",
+    "180d": "~9 månader (180 handelsdagar)",
+}
+
 STATUS_SV = {
     "listed": "Aktiv",
     "acquired": "Uppköpt",
@@ -121,6 +132,11 @@ FEATURE_SV: dict[str, tuple[str, str]] = {
     "news_sentiment_z": ("Nyhetston (nyckelordsbaserad, z-score)", "num"),
 }
 
+# 2026-09-19 (Jonas): fanns tidigare en enda hårdkodad "~90 dagar" för alla
+# fyra mönster — samma tal oavsett vad som faktiskt hänt, alltså ingen edge.
+# Tidshorisonten räknas nu fram per mönster av best_rule_horizon() (kortaste
+# tidsfönster med en tillförlitlig avvikelse i den faktiska historiken).
+
 # regelnyckel -> klarspråk. Villkoren är förregistrerade i docs/experiments/E1.md §E1d.
 RULE_SV: dict[str, dict[str, str]] = {
     "rule1": {
@@ -135,6 +151,41 @@ RULE_SV: dict[str, dict[str, str]] = {
         "titel": "Nära 52-veckors högsta med positiv trend och stigande volym",
         "villkor": "Inom 5 % från 52-veckors högsta  ·  3-månadersavkastning > 0  ·  positiv volymacceleration",
     },
+    "rule4": {
+        "titel": "Under uppbyggnad — tyst kurs, stigande volym, en bit under årshögsta",
+        "villkor": "Volym stigande eller förhöjd (vol_accel > 0 eller rvol ≥ 1,2×)  ·  kursrörelse senaste "
+                   "månaden mellan -6 % och +15 %  ·  7–38 % under 52-veckors högsta",
+    },
+}
+
+# 2026-09-19 (Jonas): varje slutsats i verdict() ska säga vad som skulle göra
+# den FEL — inte bara ett tidsfönster att sitta av. Konkreta, kollbara villkor
+# mot nästa mätning (nästa vecka), inte en allmän brasklapp.
+INVALIDATION_SV: dict[str, str] = {
+    "Utbrott pågår": (
+        "Om nästa mätning visar att kursen fallit tillbaka under nuvarande nivå SAMTIDIGT "
+        "som volymen sjunkit mot det normala — utbrottet saknade uthållighet, sälj."
+    ),
+    "Nära utbrott": (
+        "Om kursen faller mer än 8 % tillbaka UTAN att volymen fortsätter öka — det var "
+        "ingen uppbyggnad, bara brus. Sälj/avstå."
+    ),
+    "Under uppbyggnad": (
+        "Om volymen/uppmärksamheten vänder ner INNAN kursen någonsin bryter upp, eller "
+        "kursen faller mer än 15 % från nuvarande nivå — uppbyggnadstesen var fel."
+    ),
+    "Överhettad": (
+        "Om kursen fortsätter till nya toppar på fortsatt stigande volym utan avmattning "
+        "i två mätningar i rad — trenden är starkare än \"överhettad\" antog."
+    ),
+    "Utbombad — möjlig vändning": (
+        "Om kursen gör en ny botten under de senaste fyra veckornas lägsta — "
+        "vändningsförsöket misslyckades."
+    ),
+    "Fallande — ingen vändning": (
+        "Bevaka stigande volym som första tecken på att nedtrenden kan vara på väg att "
+        "brytas — inget att agera på förrän det syns."
+    ),
 }
 
 
@@ -706,6 +757,36 @@ def rule_outcome_stats() -> pd.DataFrame:
     return df.sort_values(["rule", "ord"]).reset_index(drop=True)
 
 
+def best_rule_horizon(rule: str, min_n: int = 20, min_lift: float = 1.15) -> dict | None:
+    """Kortaste tidshorisont där mönstret ``rule`` historiskt visat en verklig,
+    tillförlitlig avvikelse från basnivån (minst ``min_n`` träffar, lift ≥
+    ``min_lift``).
+
+    Ersätter en hårdkodad "90 dagar" för alla mönster (Jonas, 2026-09-19: olika
+    mönster löser sig olika fort — att alltid citera samma siffra oavsett
+    mönster är ingen edge, bara ett sätt att slippa göra jobbet). Returnerar
+    None om inget tidsfönster ännu visar en tillförlitlig avvikelse — det är
+    ett ärligt svar, inte ett saknat värde att gömma.
+    """
+    stats = rule_outcome_stats()
+    if stats.empty:
+        return None
+    rs = stats[(stats["rule"] == rule) & (stats["n"] >= min_n) & (stats["lift"] >= min_lift)]
+    if rs.empty:
+        return None
+    row = rs.sort_values("ord").iloc[0]
+    return {
+        "horizon": row["horizon"],
+        "label": _HZ_LABEL_SV.get(row["horizon"], row["horizon"]),
+        "hit_rate": float(row["hit_rate"]),
+        "base_rate": float(row["base_rate"]),
+        "lift": float(row["lift"]),
+        "med_max_ret": float(row["med_max_ret"]) if pd.notna(row["med_max_ret"]) else None,
+        "med_max_dd": float(row["med_max_dd"]) if pd.notna(row["med_max_dd"]) else None,
+        "n": int(row["n"]),
+    }
+
+
 @st.cache_data(ttl=60)
 def panel_forward_ranges() -> dict:
     """Panelbrett historiskt spann (small): median max-uppgång / max-nedgång / avkastning inom ~4 mån."""
@@ -878,6 +959,62 @@ def e1_results(eid: int) -> pd.DataFrame:
 
 
 # --------------------------------------------------------------------------- #
+# playbook (E1e) — vad olika lägen historiskt betytt för en KÖPARE
+# --------------------------------------------------------------------------- #
+
+
+@st.cache_data(ttl=120)
+def playbook() -> pd.DataFrame:
+    """E1e-raderna som tabell: group_type, group, period, horizon, n + mått.
+    Utfall räknat från köpkursen (stängning dag t). Tom om E1 inte körts."""
+    exp = e1_experiment()
+    if exp.empty:
+        return pd.DataFrame()
+    df = q(
+        "SELECT subset, n_obs, params FROM experiment_result "
+        "WHERE experiment_id = ? AND metric_name LIKE 'playbook:%'",
+        (int(exp.loc[0, "experiment_id"]),),
+    )
+    rows = []
+    for _, r in df.iterrows():
+        try:
+            rows.append({**json.loads(r["subset"]), "n": int(r["n_obs"]), **json.loads(r["params"])})
+        except (TypeError, ValueError):
+            continue
+    return pd.DataFrame(rows)
+
+
+def playbook_row(group_type: str, group: str, horizon: int = 20, period: str = "all") -> dict | None:
+    pb = playbook()
+    if pb.empty:
+        return None
+    m = pb[(pb["group_type"] == group_type) & (pb["group"] == group)
+           & (pb["horizon"] == horizon) & (pb["period"] == period)]
+    return None if m.empty else m.iloc[0].to_dict()
+
+
+def playbook_sentence(row: dict, base: dict | None, pb5: dict | None = None) -> str:
+    """Ett stycke klarspråk om vad läget historiskt betytt för den som köpt på
+    stängningen. Beskrivande historik, ingen prognos."""
+    h = int(row["horizon"])
+    base_txt = f" (snittet för alla småbolag: {base['win_rate'] * 100:.0f} %)" if base else ""
+    txt = (
+        f"Historiskt (småbolag 2022–2026, köp på stängningen): efter {h} handelsdagar var "
+        f"**{row['win_rate'] * 100:.0f} %** av fallen på plus{base_txt}, median "
+        f"**{row['median_ret'] * 100:+.1f} %**. Typisk bästa punkt {row['med_max_ret'] * 100:+.0f} %, "
+        f"typisk sämsta dipp {row['med_max_dd'] * 100:+.0f} %; {row['p_dip_10'] * 100:.0f} % dippade minst "
+        f"−10 % någon gång (så många hade blivit utslagna med 10x hävstång)."
+    )
+    if pb5:
+        txt += (
+            f" Efter 5 handelsdagar: {pb5['win_rate'] * 100:.0f} % på plus, "
+            f"{pb5['p_dip_10'] * 100:.0f} % dippade −10 %."
+        )
+    txt += f" ({int(row['n'])} historiska veckoobservationer — beskrivande, inte en prognos.)"
+    return txt
+
+
+# --------------------------------------------------------------------------- #
 # tolkning i klartext — en färdig slutsats per bolag
 # --------------------------------------------------------------------------- #
 
@@ -932,11 +1069,14 @@ def verdict(sid: int, weeks: int = 8) -> dict:
             "emot": [],
             "nyckeltal": None,
             "as_of": obs_date,
+            "horisont": None,
+            "ogiltigt_om": None,
+            "fired_recently": [],
+            "last_fire": None,
         }
 
     fhist = security_feature_history(sid)
     hist = security_signal_history(sid)
-    stats = rule_outcome_stats()
     brm = base_rate_map()
     base90 = brm.get("90d")
 
@@ -963,18 +1103,24 @@ def verdict(sid: int, weeks: int = 8) -> dict:
             last_fire = h["_d"].max()
 
     def _rule_number(rk: str) -> str | None:
-        if stats.empty:
-            return None
-        rs = stats[(stats["rule"] == rk) & (stats["horizon"] == "90d")]
-        if rs.empty or int(rs["n"].iloc[0]) < 20:
-            return None
-        hit = float(rs["hit_rate"].iloc[0])
         titel = RULE_SV.get(rk, {}).get("titel", rk)
-        base_txt = f" (normalt {_pct(base90, plus=False)})" if base90 else ""
+        best = best_rule_horizon(rk)
+        if best is None:
+            return (
+                f'Mönstret "{titel}" har ännu inget tidsfönster (1 vecka–9 månader) med en '
+                "tillförlitlig avvikelse från basnivån i historiken — obevisat, inte "
+                "bekräftat obrukbart. Behandla det som en hypotes, inte ett facit."
+            )
+        base_txt = f" (normalt {best['base_rate'] * 100:.0f} %)" if best["base_rate"] else ""
+        risk_txt = (
+            f" Typiskt sämsta läget innan dess (median): {best['med_max_dd'] * 100:+.0f} %."
+            if best.get("med_max_dd") is not None else ""
+        )
         return (
-            f'När mönstret "{titel}" lyst tidigare har en uppgång på minst +50 % inom '
-            f"~4 månader följt i {hit * 100:.0f} % av fallen{base_txt}. "
-            "Beskrivande historik, inte en prognos."
+            f'När mönstret "{titel}" lyst tidigare har en uppgång på minst +50 % följt inom '
+            f"**{best['label']}** i {best['hit_rate'] * 100:.0f} % av fallen{base_txt} — "
+            f"det kortaste fönster där mönstret hittills visat en tillförlitlig avvikelse "
+            f"({best['n']} historiska träffar).{risk_txt} Beskrivande historik, inte en prognos."
         )
 
     generic_number = (
@@ -1034,6 +1180,7 @@ def verdict(sid: int, weeks: int = 8) -> dict:
     darfor: list[str] = []
     emot: list[str] = []
     nyckeltal = generic_number
+    rule_used: str | None = None
 
     if ("rule1" in recent_rules or "rule2" in recent_rules) or exploded_now:
         kat, ikon = "Utbrott pågår", "🚀"
@@ -1058,6 +1205,7 @@ def verdict(sid: int, weeks: int = 8) -> dict:
             emot.append(f"Bolaget har redan gått {_pct(r3m)} på tre månader.")
         rk = "rule1" if "rule1" in recent_rules else ("rule2" if "rule2" in recent_rules else None)
         nyckeltal = (_rule_number(rk) if rk else None) or generic_number
+        rule_used = rk
 
     elif dist is not None and dist >= -0.06 and (r3m or 0) > 0 and vol_rising and (r1m or 0) < 0.20:
         kat, ikon = "Nära utbrott", "⚡"
@@ -1071,6 +1219,7 @@ def verdict(sid: int, weeks: int = 8) -> dict:
             "volymen och intresset fortsätter öka är det bara en prisnivå.",
         ]
         nyckeltal = _rule_number("rule3") or generic_number
+        rule_used = "rule3"
 
     elif vol_rising and calm_price and dist is not None and -0.38 <= dist <= -0.07:
         kat, ikon = "Under uppbyggnad", "🌱"
@@ -1088,7 +1237,8 @@ def verdict(sid: int, weeks: int = 8) -> dict:
             "Ökad volym utan att kursen följer med leder oftast ingenstans. Det här är "
             "inte en bekräftad signal — det är ett mönster under test.",
         ]
-        nyckeltal = generic_number
+        nyckeltal = _rule_number("rule4") or generic_number
+        rule_used = "rule4"
 
     elif r3m is not None and r3m >= 0.6 and dist is not None and dist >= -0.04:
         kat, ikon = "Överhettad", "🔥"
@@ -1149,6 +1299,24 @@ def verdict(sid: int, weeks: int = 8) -> dict:
         emot = ["Bevaka om handeln börjar ticka upp — det är oftast det första som händer."]
         nyckeltal = generic_number
 
+    pb = playbook_row("verdict", kat, 20)
+    if pb:
+        # Köparens siffror (köpkurs = stängning dag t, E1e) ersätter regelstatistiken
+        # nedan, som räknas från 5-dagarsmedel (P0) och överdriver efter uppgångar.
+        nyckeltal = playbook_sentence(pb, playbook_row("all", "Alla bolag (basnivå)", 20), pb5=playbook_row("verdict", kat, 5))
+        d = pb.get("med_days_to_peak_30")
+        horisont = (
+            f"toppen kom i median efter ~{d:.0f} handelsdagar (≈ {d / 5:.0f} veckor) — utvärderat över 20 handelsdagar"
+            if d and kat != "Ingen signal" else None
+        )
+    elif rule_used:
+        bh = best_rule_horizon(rule_used)
+        horisont = bh["label"] if bh else "inget tidsfönster (1 v–9 mån) ännu tillförlitligt — obevisat"
+    else:
+        # inget förregistrerat mönster bakom den här kategorin (t.ex. "Överhettad",
+        # "Fallande") -> ingen påhittad tidshorisont. Hellre inget tal än fel tal.
+        horisont = None
+
     return {
         "kategori": kat,
         "ikon": ikon,
@@ -1157,6 +1325,8 @@ def verdict(sid: int, weeks: int = 8) -> dict:
         "emot": emot,
         "nyckeltal": nyckeltal,
         "as_of": obs_date,
+        "horisont": horisont,
+        "ogiltigt_om": INVALIDATION_SV.get(kat),
         "fired_recently": recent_rules,
         "last_fire": None if last_fire is None else last_fire.date(),
     }
@@ -1354,6 +1524,7 @@ def market_radar(segment: str = "small", weeks: int = 8) -> pd.DataFrame:
             "security_id": int(sid),
             "Bolag": m["name"],
             "Uppbyggnad": None if su is None else float(su["setup_score"]),
+            "Uppbyggnadsband": None if su is None else str(su["setup_band"]),
             "Redan synligt": None if su is None else bool(su["already_visible"]),
             "Discovery": None if sc is None else float(sc["score"]),
             "Fas": f"{p.marker} {p.label}",
@@ -1367,6 +1538,7 @@ def market_radar(segment: str = "small", weeks: int = 8) -> pd.DataFrame:
             "Från årshögsta": _num(f.get("dist_52w_high")),
             "Mönster": int(rmap.get(sid, 0)),
             "Sektor": m["sector"],
+            "Land": COUNTRY_SV.get(m["country"], m["country"] or "—"),
             "segment": m["segment"],
             "obs_date": m["obs_date"],
         })
@@ -1376,6 +1548,37 @@ def market_radar(segment: str = "small", weeks: int = 8) -> pd.DataFrame:
     if segment in ("small", "mid"):
         df = df[df["segment"] == segment]
     return df.sort_values(["Uppbyggnad"], ascending=False, na_position="last").reset_index(drop=True)
+
+
+@st.cache_data(ttl=300)
+def radar_sparklines(days: int = 90) -> dict:
+    """Kurs- och volymserie (senaste ``days`` handelsdagar) per bolag, för
+    minidiagram i Market Radar. Formen (stiger/faller/lugn) är poängen, inte
+    exakta tal — därför en enda bulk-fråga för hela universumet i stället för
+    en fråga per bolag."""
+    df = q(
+        """
+        WITH ranked AS (
+            SELECT security_id, session_date, adj_close_sek, turnover_sek,
+                   row_number() OVER (PARTITION BY security_id ORDER BY session_date DESC) AS rn
+            FROM price_clean
+        )
+        SELECT security_id,
+               array_agg(adj_close_sek ORDER BY session_date ASC)  AS kurs,
+               array_agg(turnover_sek ORDER BY session_date ASC)   AS volym
+        FROM ranked
+        WHERE rn <= ?
+        GROUP BY security_id
+        """,
+        (days,),
+    )
+    out = {}
+    for _, r in df.iterrows():
+        out[int(r["security_id"])] = {
+            "kurs": [float(x) for x in r["kurs"] if x is not None],
+            "volym": [float(x) for x in r["volym"] if x is not None],
+        }
+    return out
 
 
 def _num(v):
@@ -1579,3 +1782,113 @@ def latest_prices_all() -> dict:
         """
     )
     return dict(zip(df["security_id"], df["adj_close_sek"], strict=False))
+
+
+@st.cache_data(ttl=120)
+def tradable_securities() -> pd.DataFrame:
+    """Alla noterade bolag med en aktuell kurs (senaste 10 dagarna) — det
+    pappershandeln får handla i.
+
+    Medvetet bredare än Market Radar: radarn visar bara bolag som klarar
+    universumkraven (likviditet, storlek, historik). Climeon föll ur
+    universumet 2023 för att handeln blev för tunn, men har en riktig kurs
+    idag och ska gå att handla på papper (Jonas, 2026-09-23)."""
+    return q(
+        """
+        WITH last AS (SELECT security_id, max(session_date) AS d FROM price_clean GROUP BY 1)
+        SELECT s.security_id, s.name, l.d AS last_date, p.adj_close_sek AS price
+        FROM last l
+        JOIN price_clean p ON p.security_id = l.security_id AND p.session_date = l.d
+        JOIN security s ON s.security_id = l.security_id
+        WHERE s.status = 'listed'
+          AND l.d >= (SELECT max(session_date) FROM price_clean) - INTERVAL 10 DAY
+        ORDER BY s.name
+        """
+    )
+
+
+def _jnum(v):
+    """JSON-säkert tal: NaN/None -> None, numpy -> float."""
+    if v is None:
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return None if f != f else f
+
+
+def trade_snapshot(sid: int) -> dict:
+    """Ögonblicksbild av läget NÄR en pappersaffär görs: fas, volym, Noels
+    nyckeltal. Sparas med affären (marc.paper) så man i efterhand ser vad som
+    gällde DÅ — inte vad som gäller när man tittar igen (Jonas, 2026-09-23).
+    Medvetet ocachad: ska spegla just det ögonblicket."""
+    import datetime as _dt
+
+    vd = verdict(sid)
+    setup = stock_setup(sid)
+    assess = stock_assessment(sid)
+    ph = security_phase(sid)
+    obs_date, feats = security_features_latest(sid)
+    feats = feats or {}
+
+    px = q(
+        "SELECT session_date, volume, turnover_sek FROM price_clean "
+        "WHERE security_id = ? ORDER BY session_date DESC LIMIT 60",
+        (sid,),
+    )
+    volym: dict = {}
+    if not px.empty:
+        last = px.iloc[0]
+        med60 = float(px["turnover_sek"].median()) if px["turnover_sek"].notna().any() else None
+        avg5 = float(px["turnover_sek"].head(5).mean()) if px["turnover_sek"].head(5).notna().any() else None
+        volym = {
+            "senaste_dag": str(last["session_date"])[:10],
+            "senaste_dag_aktier": _jnum(last["volume"]),
+            "senaste_dag_omsattning_sek": _jnum(last["turnover_sek"]),
+            "snitt_5d_omsattning_sek": _jnum(avg5),
+            "median_60d_omsattning_sek": _jnum(med60),
+            # färskt från kursdatan (inte veckopanelen, som kan vara några dagar gammal):
+            # snittvolym senaste 5 dagarna mot 60-dagarssnittet
+            "mot_normalt": _jnum(
+                px["volume"].head(5).mean() / px["volume"].mean()
+                if px["volume"].notna().any() and px["volume"].mean() else None
+            ),
+            "mot_normalt_veckopanel": _jnum(feats.get("rvol_5_60")),
+            "trend": (
+                None if feats.get("vol_accel") is None or _jnum(feats.get("vol_accel")) is None
+                else "ökar" if feats["vol_accel"] > 0 else "minskar" if feats["vol_accel"] < 0 else "oförändrad"
+            ),
+        }
+
+    return {
+        "version": 1,
+        "tagen": _dt.datetime.now().isoformat(timespec="seconds"),
+        "data_vecka": None if obs_date is None else str(obs_date)[:10],
+        "fas": {
+            "nyckel": ph.get("key"), "namn": ph.get("label"), "markering": ph.get("marker"),
+            "beskrivning": ph.get("note"),
+        },
+        "volym": volym,
+        "noel": {
+            "slutsats": vd.get("kategori"), "ikon": vd.get("ikon"), "sammanfattning": vd.get("slutsats"),
+            "ogiltigt_om": vd.get("ogiltigt_om"), "tidshorisont": vd.get("horisont"),
+            "historik": vd.get("nyckeltal"), "monster_lyst": list(vd.get("fired_recently") or []),
+            "uppbyggnad": (
+                {"poang": _jnum(setup.get("score")), "band": setup.get("band"),
+                 "redan_synligt": bool(setup.get("already_visible"))}
+                if setup.get("has_feats") else None
+            ),
+            "discovery": (
+                {"poang": _jnum(assess.get("score")), "band": assess.get("band")}
+                if assess.get("has_feats") else None
+            ),
+        },
+        "nyckeltal": {
+            "kurs_1m": _jnum(feats.get("ret_1m")), "kurs_3m": _jnum(feats.get("ret_3m")),
+            "kurs_12m": _jnum(feats.get("ret_12m")), "fran_arshogsta": _jnum(feats.get("dist_52w_high")),
+            "volatilitet_20d": _jnum(feats.get("rv_20d")),
+            "sok_acceleration": _jnum(feats.get("search_accel")),
+            "nyhetston_z": _jnum(feats.get("news_sentiment_z")),
+        },
+    }

@@ -41,6 +41,17 @@ def _rule_masks(w: pd.DataFrame) -> dict[str, pd.Series]:
         "rule1": (g("rvol_5_60") >= 3) & (g("ret_1m") > 0.20) & (g("vol_expansion") >= 1.5),
         "rule2": (g("breakout_20d") == 1) & (g("rvol_20_200") >= 2),
         "rule3": (g("dist_52w_high") >= -0.05) & (g("ret_3m") > 0) & (g("vol_accel") > 0),
+        # 2026-09-19 (Jonas): "under uppbyggnad"-läget (tyst kurs + stigande
+        # volym en bit under årshögsta — samma villkor som appens "Under
+        # uppbyggnad"-slutsats, app/_data.py verdict()) fanns bara som en
+        # oregistrerad heuristik utan historik att visa mot. Nu förregistrerad
+        # som rule4 så den faktiskt får en riktig träffkvot/hold-tid istället
+        # för att luta sig mot den generiska basnivån.
+        "rule4": (
+            ((g("vol_accel") > 0) | (g("rvol_5_60") >= 1.2))
+            & (g("ret_1m") >= -0.06) & (g("ret_1m") <= 0.15)
+            & (g("dist_52w_high") >= -0.38) & (g("dist_52w_high") <= -0.07)
+        ),
     }
 
 

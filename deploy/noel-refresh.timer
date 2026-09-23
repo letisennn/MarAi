@@ -1,0 +1,12 @@
+[Unit]
+Description=Noel AI — uppdatera varje dag 17:00 (och 18:00 för slutkursen)
+
+[Timer]
+# Stockholmsbörsen stänger 17:30, så 17:00-körningen får dagens kurs mitt i
+# handeln. 18:00-körningen skriver över med de slutliga slutkurserna.
+OnCalendar=*-*-* 17:00:00
+OnCalendar=*-*-* 18:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

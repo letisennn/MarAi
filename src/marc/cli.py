@@ -46,6 +46,23 @@ def pipeline(
     typer.echo(json.dumps(summary, indent=2, default=str))
 
 
+@app.command("refresh")
+def refresh(
+    full: bool = typer.Option(False, "--full", help="hämta hela kurshistoriken i stället för de senaste 30 dagarna"),
+) -> None:
+    """Daglig uppdatering: färska kurser → städning → universum → panel → E1 → signaler.
+
+    Rör inte attention-datan (riktig Trends/nyheter är långsam och rate-limitad —
+    körs separat med ``marc pipeline --attention-source real``). Byggd för att
+    köras av cron/schemaläggare varje dag.
+    """
+    from marc.pipeline import run_all
+
+    summary = run_all(source="yfinance", reset=False, attention_source="keep",
+                      since_days=None if full else 30)
+    typer.echo(json.dumps({k: summary[k] for k in ("ingest", "panel", "signals")}, indent=2, default=str))
+
+
 @app.command("panel")
 def panel_build() -> None:
     """Rebuild observation + feature_panel + target_panel."""

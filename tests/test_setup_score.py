@@ -6,8 +6,9 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
-from marc.discovery import assess_setup
+from marc.discovery import assess_setup, compute_setup_score_panel
 
 
 def _peers(n: int = 30) -> pd.DataFrame:
@@ -91,3 +92,64 @@ def test_calm_price_scores_higher_than_already_moved_price() -> None:
     lugn_calm = next(c.score for c in assess_setup(calm, peers).components if c.key == "lugn_kurs")
     lugn_moved = next(c.score for c in assess_setup(moved, peers).components if c.key == "lugn_kurs")
     assert lugn_calm > lugn_moved
+
+
+def test_panel_version_matches_row_version_per_week() -> None:
+    """compute_setup_score_panel (vektoriserad, för E1) ska ge samma svar som
+    assess_setup (rad-för-rad, för UI) — inom marginal för hur oavgjorda
+    placeringar (ties) hanteras. Två separata veckor så tvärsnittet aldrig
+    blandas mellan veckor (point-in-time)."""
+    peers = _peers(40)
+    week1 = peers.assign(obs_date=pd.Timestamp("2026-01-02"), security_id=range(40))
+    week2 = peers.sample(frac=1.0, random_state=2).reset_index(drop=True).assign(
+        obs_date=pd.Timestamp("2026-01-09"), security_id=range(40),
+    )
+    wide = pd.concat([week1, week2], ignore_index=True)
+
+    panel_scores = compute_setup_score_panel(wide)
+
+    for _wk, grp in wide.groupby("obs_date"):
+        grp_peers = grp.drop(columns=["obs_date", "security_id"])
+        for idx in grp.index[:5]:  # några rader räcker för att bevisa poängen
+            row_score = assess_setup(wide.loc[idx].to_dict(), grp_peers).total
+            assert panel_scores.loc[idx] == pytest.approx(row_score, abs=6.0)
+
+
+def test_panel_version_caps_already_visible_rows() -> None:
+    peers = _peers(40)
+    wide = peers.assign(obs_date=pd.Timestamp("2026-01-02"), security_id=range(40))
+    already_idx = wide.index[0]
+    wide.loc[already_idx, ["dist_52w_high", "ret_3m"]] = [-0.01, 0.32]
+
+    panel_scores = compute_setup_score_panel(wide)
+    assert panel_scores.loc[already_idx] <= 15.0
+
+
+def test_panel_version_exclude_already_visible_nans_gated_rows() -> None:
+    """exclude_already_visible=True: spärrade rader ska bli NaN (exkluderas
+    ur rank-IC/kvintilanalys), inte capade — så man kan testa om edgen finns
+    även bland de OSPÄRRADE bolagen (Jonas, 2026-09-19)."""
+    peers = _peers(40)
+    wide = peers.assign(obs_date=pd.Timestamp("2026-01-02"), security_id=range(40))
+    already_idx = wide.index[0]
+    other_idx = wide.index[1]
+    wide.loc[already_idx, ["dist_52w_high", "ret_3m"]] = [-0.01, 0.32]
+
+    ungated = compute_setup_score_panel(wide, exclude_already_visible=True)
+    assert pd.isna(ungated.loc[already_idx])
+    assert pd.notna(ungated.loc[other_idx])
+    assert ungated.name == "setup_score_ungated"
+
+
+def test_panel_version_keeps_weeks_independent() -> None:
+    """En extrem outlier en vecka får inte påverka en annan veckas rankning."""
+    peers = _peers(40)
+    week1 = peers.assign(obs_date=pd.Timestamp("2026-01-02"), security_id=range(40))
+    week2 = peers.assign(obs_date=pd.Timestamp("2026-01-09"), security_id=range(40))
+    week2.loc[week2.index[0], "rvol_5_60"] = 999.0  # extrem outlier, bara vecka 2
+
+    wide = pd.concat([week1, week2], ignore_index=True)
+    scores = compute_setup_score_panel(wide)
+    w1_scores = scores.loc[wide["obs_date"] == "2026-01-02"]
+    w1_scores_alone = compute_setup_score_panel(week1)
+    pd.testing.assert_series_equal(w1_scores.reset_index(drop=True), w1_scores_alone.reset_index(drop=True))

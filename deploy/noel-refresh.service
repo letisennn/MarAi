@@ -1,0 +1,7 @@
+[Unit]
+Description=Noel AI — daglig dataupdatering (kurser, panel, statistik, signaler)
+
+[Service]
+Type=oneshot
+ExecStart=/opt/noel/deploy/refresh.sh
+TimeoutStartSec=3000

@@ -11,13 +11,18 @@ from __future__ import annotations
 import os
 
 import streamlit as st
+from dotenv import load_dotenv
+
+load_dotenv()
 
 st.set_page_config(page_title="Noel AI", page_icon="📡", layout="wide")
 
 from _data import data_source, db_exists, last_signal_date, latest_obs_date  # noqa: E402
-from _gate import require_password  # noqa: E402
+from _gate import USERS, current_user, logout, require_login  # noqa: E402
+from _style import inject_css  # noqa: E402
 
-require_password()
+require_login()
+inject_css()
 
 if not db_exists():
     # Ingen databasfil (t.ex. färsk deploy på Streamlit Cloud). Bygg den vid
@@ -78,25 +83,53 @@ with st.sidebar:
         "Experimentellt researchverktyg. Ingenting här är validerat eller "
         "investeringsrådgivning."
     )
+    st.divider()
+    user = current_user() or "jonas"
+    st.session_state["paper_owner"] = user
+    uc1, uc2 = st.columns([3, 2])
+    uc1.markdown(f"👤 Inloggad som **{USERS.get(user, user)}**")
+    if uc2.button("Logga ut", width="stretch"):
+        logout()
+    st.caption(
+        "Jonas och Hugo har separata pappersportföljer och separat startkapital — "
+        "inloggningen styr vems du ser/handlar i."
+    )
+    st.divider()
+    st.toggle(
+        "🔬 Forskarläge",
+        key="forskarlage",
+        help=(
+            "Visar de rådata-tunga forskningsvyerna (Signal Lab, Forskning/E1) — "
+            "statistik och grafer som kräver att man kan tolka dem själv. Av som "
+            "standard: allt annat i appen presenterar redan en färdig slutsats."
+        ),
+    )
 
 nav = {
-    "Radar": [
-        st.Page("views/radar.py", title="Market Radar", icon="📡", default=True),
+    "Idag": [
+        st.Page("views/start.py", title="Översikt", icon="🏠", default=True),
         st.Page("views/dagens.py", title="Dagens upptäckter", icon="🌅"),
     ],
     "Bolag": [
+        st.Page("views/radar.py", title="Market Radar", icon="📡"),
         st.Page("views/bolag.py", title="Alla bolag", icon="📋"),
         st.Page("views/bolag_detalj.py", title="Bolag i detalj", icon="🔎"),
         st.Page("views/rorelser.py", title="Rörelser & utbrott", icon="📈"),
     ],
-    "Forskning": [
-        st.Page("views/signal_lab.py", title="Signal Lab", icon="🧪"),
-        st.Page("views/signaler.py", title="Signaler", icon="🚨"),
-        st.Page("views/forskning.py", title="Forskning (E1)", icon="📚"),
-    ],
-    "Noel": [
+    "Portfölj": [
         st.Page("views/portfolio.py", title="Paperhandel", icon="💼"),
         st.Page("views/performance.py", title="Performance", icon="📊"),
     ],
 }
+if st.session_state.get("forskarlage"):
+    # Signaler bygger på fyra FÖRREGISTRERADE regler som medvetet testar andra
+    # lägen än Uppbyggnadspoängen (t.ex. rule3 = nära årshögsta — nästan
+    # motsatsen till vad Radar belönar). Rätt så, metodiskt, men förvirrande
+    # som en "andra åsikt" bredvid Radar i vardagen — hör hemma bland
+    # forskningsverktygen, inte i det dagliga flödet (Jonas, 2026-09-19).
+    nav["Forskarläge (rådata)"] = [
+        st.Page("views/signaler.py", title="Signaler", icon="🚨"),
+        st.Page("views/signal_lab.py", title="Signal Lab", icon="🧪"),
+        st.Page("views/forskning.py", title="Forskning (E1)", icon="📚"),
+    ]
 st.navigation(nav).run()

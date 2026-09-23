@@ -13,6 +13,7 @@ from _data import (
     movers,
     verdict,
 )
+from _guide import rorelser_guide
 
 st.title("Rörelser & utbrott")
 st.caption(
@@ -28,6 +29,8 @@ win_label = c1.radio(
 seg_label = c2.radio("Urval", ["Bara small", "Alla i universumet"], index=0, horizontal=True)
 win = {"1 vecka": "1w", "1 månad": "1m", "3 månader": "3m", "12 månader": "12m"}[win_label]
 seg = "small" if seg_label == "Bara small" else "alla"
+
+rorelser_guide(win)
 
 mv = movers(window=win, segment=seg, limit=30)
 if mv.empty:
@@ -88,6 +91,15 @@ sid = int(mv.loc[mv["name"] == pick, "security_id"].iloc[0])
 
 vd = verdict(sid)
 st.markdown(f"**{pick}** — läge nu: {vd['ikon']} **{vd['kategori']}**. {vd['slutsats']}")
+meta_bits = []
+if vd.get("as_of") is not None:
+    meta_bits.append(f"📅 Utfärdad {pd.Timestamp(vd['as_of']):%Y-%m-%d}")
+if vd.get("horisont"):
+    meta_bits.append(f"⏱ Tidshorisont {vd['horisont']}")
+if meta_bits:
+    st.caption("  ·  ".join(meta_bits))
+if vd.get("ogiltigt_om"):
+    st.caption(f"🚫 **Ogiltigt om:** {vd['ogiltigt_om']}")
 
 pc = move_precursor(sid, weeks_before=5)
 if pc.empty:

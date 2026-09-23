@@ -30,6 +30,16 @@
 > kräver LLM eller ny fundamenta-pelare) kräver beslut — se
 > `docs/data_sources.md` och "Fråga innan" nedan.
 
+> **Köparperspektiv 2026-09-23 (Jonas).** Varje sida i appen har nu en
+> "Så använder du den när du ska köpa"-guide (`app/_guide.py`) vars siffror
+> kommer ur **E1e playbook** (`stats/playbook.py`, körs av `marc stats`):
+> utfall räknade från **köpkursen (stängning dag t)**, inte E1:s P0
+> (5-dagarsmedel). P0 är rätt för att testa signaler men överdriver vinsten
+> efter kraftiga uppgångar — med köpkurs försvinner momentum-"edgen" i
+> utbrottsgrupperna (att jaga uppgångar har gett sämre odds än snittet).
+> Uppbyggnadspoängens rang-IC håller även på köpkurs. Signaler (Forskarläge)
+> visar fortfarande P0-baserade träffkvoter och är märkt därefter.
+
 ## Vad det här är
 
 Noel AI är ett **privat internt research-verktyg** för två personer (Jonas och
@@ -161,7 +171,7 @@ src/marc/
   score/       PRELIMINÄR "Discovery Score" (config/score.yml) -> hur starkt ett bolag rör sig JUST NU (momentum/närhet till högsta/volym). Referensmått, inte huvudrankning (se discovery/setup.py).
   discovery/   marknadsfas (7-fasers hype-cykel) + PRELIMINÄR "Uppbyggnadspoäng" (setup.py, config/setup_score.yml) — HUVUDRANKNING i Market Radar/Dagens upptäckter, motsatt inriktning mot Discovery Score: letar tyst kurs + stigande volym/uppmärksamhet UNDER (inte vid) årshögsta, och capar/flaggar bolag som redan är nära årshögsta med stor uppgång bakom sig ("redan synligt för alla", 2026-09-16, Jonas) + historiska analoger (kNN på feature_panel, point-in-time) + snapshot/evaluate för automatisk research-logg. Allt beskrivande, experimentellt.
   paper/       manuell pappershandel (100 000 kr fejkat startkapital, riktiga kurser). Egen separat databasfil (data/paper_trades.duckdb) — appens ENDA skrivväg, rör aldrig data/marc.duckdb.
-  stats/       baslinjefrekvenser, univariata quintil-sorteringar, rank-IC, kontroll-lift, Fama-MacBeth, block-bootstrap → experiment_result
+  stats/       baslinjefrekvenser, playbook.py (E1e: utfall per läge från köpkurs, driver app/_guide.py), univariata quintil-sorteringar, rank-IC, kontroll-lift, Fama-MacBeth, block-bootstrap → experiment_result
   panel.py     bygger observation + feature_panel + target_panel (veckovis)
   pipeline.py  end-to-end-orkestrering (marc pipeline)
   backtest/    event study + portföljformering — fortf. skelett (quintil/lift finns i stats)
@@ -197,7 +207,7 @@ uv run marc pipeline --source yfinance --reset    # hela kedjan: migrate → see
 uv run streamlit run app/Home.py             # webbappen (läser data/marc.duckdb read-only)
 ```
 
-Delkommandon: `marc db migrate`, `marc panel`, `marc stats`, `marc signals`,
+Delkommandon: `marc db migrate`, `marc refresh` (daglig uppdatering: färska kurser → panel → E1 → signaler, rör inte attention; körs av servern 17:00/18:00 — se `deploy/README.md`), `marc panel`, `marc stats`, `marc signals`,
 `marc info`, `marc discovery snapshot|evaluate`. **Standard är `yfinance`**
 (2026-09-08, Jonas) — riktig dagsdata från Yahoo Finance. Seed-universumet
 (`data/seed/securities.csv`, 2026-09-16) är **671 riktiga Stockholmsnoterade

@@ -25,6 +25,7 @@ dependencies = [
     "yfinance>=0.2.40",   # real price source (default); synthetic source for offline/demo
     "pytrends>=4.9.2",
     "anthropic>=1.6.0",
+    "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]

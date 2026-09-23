@@ -18,6 +18,7 @@ from _data import (
     RULE_SV,
     analogues,
     attention_source_summary,
+    best_rule_horizon,
     feature_label,
     fmt_feature,
     has_attention,
@@ -39,8 +40,10 @@ from _data import (
     stock_setup,
     verdict,
 )
+from _guide import detalj_guide
 
 st.title("Bolag i detalj")
+detalj_guide()
 
 _PHASE_ORDER = ["low", "early", "accelerating", "hype", "mass", "exhaustion", "reversal"]
 
@@ -90,10 +93,28 @@ if ph.get("key") and ph["key"] != "unknown":
         (f"**{PHASE_SV[k]}**" if k == ph["key"] else PHASE_SV[k]) for k in _PHASE_ORDER
     ) + "  ·  beskrivande, ej köp/sälj")
 
+bc1, bc2, _ = st.columns([2, 2, 5])
+if bc1.button("🛒 Köp i paperhandel", key="detalj_buy", type="primary"):
+    st.session_state["paper_prefill"] = sid
+    st.switch_page("views/portfolio.py")
+bc2.page_link("views/radar.py", label="← Tillbaka till Radar", icon="📡")
+
 # =============================================================== SLUTSATS
 with st.container(border=True):
     st.markdown(f"## {vd['ikon']} {vd['kategori']}")
     st.markdown(f"**{vd['slutsats']}**")
+
+    as_of = pd.Timestamp(vd["as_of"]) if vd.get("as_of") is not None else None
+    last_fire = vd.get("last_fire")
+    meta_bits = []
+    if as_of is not None:
+        meta_bits.append(f"📅 **Utfärdad:** {as_of:%Y-%m-%d}")
+    if vd.get("horisont"):
+        meta_bits.append(f"⏱ **Tidshorisont:** {vd['horisont']}")
+    if last_fire is not None:
+        meta_bits.append(f"🔔 **Senaste mönsterträff:** {pd.Timestamp(last_fire):%Y-%m-%d}")
+    if meta_bits:
+        st.caption("  ·  ".join(meta_bits))
 
     if vd["darfor"]:
         st.markdown("**Därför:**")
@@ -103,11 +124,10 @@ with st.container(border=True):
         st.markdown("\n".join(f"- {x}" for x in vd["emot"]))
     if vd["nyckeltal"]:
         st.info(vd["nyckeltal"])
+    if vd.get("ogiltigt_om"):
+        st.warning(f"**Ogiltigt om:** {vd['ogiltigt_om']}", icon="🚫")
 
-    as_of = pd.Timestamp(vd["as_of"]) if vd.get("as_of") is not None else None
     foot = "Preliminär, ovaliderad bedömning — trösklar och regelvikter är handsatta. "
-    if as_of is not None:
-        foot += f"Mätt {as_of:%Y-%m-%d}. "
     foot += "Beskriver nuläget mot historisk frekvens — inte en prognos."
     st.caption(foot)
 
@@ -321,7 +341,9 @@ for rk, meta in RULE_SV.items():
             st.markdown(f"Lyste senast {last:%Y-%m-%d} — {meta['titel']}")
         else:
             st.markdown(f"Har aldrig lyst — {meta['titel']}")
-        st.caption("Villkor: " + meta["villkor"])
+        bh = best_rule_horizon(rk)
+        hz_txt = bh["label"] if bh else "obevisat ännu — inget tidsfönster visar en tillförlitlig avvikelse"
+        st.caption(f"Villkor: {meta['villkor']}  ·  Tidshorisont: {hz_txt}")
 
         rs = stats_all[stats_all["rule"] == rk] if not stats_all.empty else pd.DataFrame()
         if rs.empty:

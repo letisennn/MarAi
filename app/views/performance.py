@@ -10,8 +10,10 @@ import pandas as pd
 import streamlit as st
 
 from _data import discovery_log, discovery_performance
+from _guide import performance_guide
 
 st.title("📊 Noel Performance")
+performance_guide()
 st.caption(
     "Följer upp varje sparad 'discovery' mot vad aktien faktiskt gjorde "
     "(+1 / +5 / +20 / +30 / +60 / +90 dagar), jämfört med kontroll/benchmark."

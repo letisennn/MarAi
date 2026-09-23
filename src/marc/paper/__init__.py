@@ -16,6 +16,7 @@ tillräckligt för en pappersportfölj.
 from __future__ import annotations
 
 import datetime as dt
+import json
 from contextlib import contextmanager
 
 import duckdb
@@ -24,6 +25,12 @@ import pandas as pd
 from marc.config import get_settings
 
 DEFAULT_STARTING_CAPITAL = 100_000.0
+
+# 2026-09-19 (Jonas): var tidigare ETT delat konto för hela appen — en reset av
+# vem som helst raderade båda personernas affärer. Nu ett konto PER ägare;
+# reset_account() rör bara den ägarens rader. Se docs/data_sources.md.
+OWNERS = ("jonas", "hugo")
+DEFAULT_OWNER = "jonas"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS account (
@@ -44,6 +51,15 @@ CREATE TABLE IF NOT EXISTS trade (
 );
 """
 
+# separat migreringssteg (inte i _SCHEMA ovan): lägger till `owner` på en fil
+# som skapades innan per-person-konton fanns, utan att röra befintliga rader.
+_MIGRATE_OWNER = """
+ALTER TABLE account ADD COLUMN IF NOT EXISTS owner TEXT;
+ALTER TABLE trade ADD COLUMN IF NOT EXISTS owner TEXT;
+ALTER TABLE trade ADD COLUMN IF NOT EXISTS snapshot TEXT;
+CREATE SEQUENCE IF NOT EXISTS account_id_seq START 2;
+"""
+
 
 @contextmanager
 def session():
@@ -56,59 +72,110 @@ def session():
         for stmt in _SCHEMA.strip().split(";"):
             if stmt.strip():
                 con.execute(stmt)
+        for stmt in _MIGRATE_OWNER.strip().split(";"):
+            if stmt.strip():
+                con.execute(stmt)
+        # rader från innan ägarkolumnen fanns hörde till det enda kontot som
+        # då fanns — det var Jonas som satte upp och testade funktionen.
+        con.execute("UPDATE account SET owner = ? WHERE owner IS NULL", [DEFAULT_OWNER])
+        con.execute("UPDATE trade SET owner = ? WHERE owner IS NULL", [DEFAULT_OWNER])
         yield con
     finally:
         con.close()
 
 
-def get_account(con: duckdb.DuckDBPyConnection) -> dict:
+def _check_owner(owner: str) -> None:
+    if owner not in OWNERS:
+        raise ValueError(f"owner must be one of {OWNERS}, got {owner!r}")
+
+
+def get_account(con: duckdb.DuckDBPyConnection, owner: str = DEFAULT_OWNER) -> dict:
+    _check_owner(owner)
     row = con.execute(
-        "SELECT starting_capital_sek, created_at FROM account WHERE account_id = 1"
+        "SELECT starting_capital_sek, created_at FROM account WHERE owner = ?", [owner]
     ).fetchone()
     if row is None:
         con.execute(
-            "INSERT INTO account (account_id, starting_capital_sek) VALUES (1, ?)",
-            [DEFAULT_STARTING_CAPITAL],
+            "INSERT INTO account (account_id, starting_capital_sek, owner) "
+            "VALUES (nextval('account_id_seq'), ?, ?)",
+            [DEFAULT_STARTING_CAPITAL, owner],
         )
         return {"starting_capital": DEFAULT_STARTING_CAPITAL, "created_at": None}
     return {"starting_capital": float(row[0]), "created_at": row[1]}
 
 
-def reset_account(con: duckdb.DuckDBPyConnection, starting_capital: float = DEFAULT_STARTING_CAPITAL) -> None:
-    con.execute("DELETE FROM trade")
-    con.execute("DELETE FROM account")
-    con.execute("INSERT INTO account (account_id, starting_capital_sek) VALUES (1, ?)", [starting_capital])
+def reset_account(
+    con: duckdb.DuckDBPyConnection, owner: str = DEFAULT_OWNER,
+    starting_capital: float = DEFAULT_STARTING_CAPITAL,
+) -> None:
+    """Nollställer ENDAST ``owner``s eget konto — rör aldrig den andra ägarens
+    affärer (2026-09-19: det var precis det som gick fel med ett delat konto)."""
+    _check_owner(owner)
+    con.execute("DELETE FROM trade WHERE owner = ?", [owner])
+    con.execute("DELETE FROM account WHERE owner = ?", [owner])
+    con.execute(
+        "INSERT INTO account (account_id, starting_capital_sek, owner) "
+        "VALUES (nextval('account_id_seq'), ?, ?)",
+        [starting_capital, owner],
+    )
 
 
 def record_trade(
     con: duckdb.DuckDBPyConnection,
+    owner: str,
     security_id: int,
     side: str,
     shares: float,
     price_sek: float,
     trade_date: dt.date | None = None,
     note: str | None = None,
+    snapshot: dict | str | None = None,
 ) -> int:
+    """``note`` = användarens egen anteckning ("varför"). ``snapshot`` = en
+    automatisk ögonblicksbild av läget när affären gjordes (fas, volym, Noels
+    nyckeltal) — sparas som JSON så den visar vad som gällde DÅ, inte vad som
+    gäller när man tittar senare (Jonas, 2026-09-23)."""
+    _check_owner(owner)
     if side not in ("buy", "sell"):
         raise ValueError(f"side must be 'buy' or 'sell', got {side!r}")
     if shares <= 0 or price_sek <= 0:
         raise ValueError("shares and price_sek must be positive")
-    get_account(con)  # säkerställ att kontot finns
+    get_account(con, owner)  # säkerställ att kontot finns
     con.execute(
-        "INSERT INTO trade (security_id, side, shares, price_sek, trade_date, note) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO trade (security_id, side, shares, price_sek, trade_date, note, owner, snapshot) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         [int(security_id), side, float(shares), float(price_sek),
-         trade_date or dt.date.today(), note],
+         trade_date or dt.date.today(), (note or "").strip() or None, owner,
+         snapshot if isinstance(snapshot, str) or snapshot is None
+         else json.dumps(snapshot, ensure_ascii=False, default=str)],
     )
     return int(con.execute("SELECT trade_id FROM trade ORDER BY trade_id DESC LIMIT 1").fetchone()[0])
 
 
-def list_trades(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
+def list_trades(con: duckdb.DuckDBPyConnection, owner: str = DEFAULT_OWNER) -> pd.DataFrame:
+    _check_owner(owner)
     df = con.execute(
-        "SELECT trade_id, security_id, side, shares, price_sek, trade_date, note, created_at "
-        "FROM trade ORDER BY created_at, trade_id"
+        "SELECT trade_id, security_id, side, shares, price_sek, trade_date, note, snapshot, created_at "
+        "FROM trade WHERE owner = ? ORDER BY created_at, trade_id",
+        [owner],
     ).df()
     return df
+
+
+def set_trade_note(con: duckdb.DuckDBPyConnection, owner: str, trade_id: int, note: str | None) -> bool:
+    """Skriver/ändrar anteckningen på en affär. Rör bara ``owner``s egna affärer —
+    returnerar False (och ändrar inget) om affären tillhör någon annan."""
+    _check_owner(owner)
+    hit = con.execute(
+        "SELECT count(*) FROM trade WHERE trade_id = ? AND owner = ?", [int(trade_id), owner]
+    ).fetchone()[0]
+    if not hit:
+        return False
+    con.execute(
+        "UPDATE trade SET note = ? WHERE trade_id = ? AND owner = ?",
+        [(note or "").strip() or None, int(trade_id), owner],
+    )
+    return True
 
 
 def compute_positions(trades: pd.DataFrame) -> pd.DataFrame:
@@ -171,10 +238,13 @@ def trades_with_pnl(trades: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values(["trade_date", "created_at", "trade_id"]).reset_index(drop=True)
 
 
-def account_summary(con: duckdb.DuckDBPyConnection, latest_prices: dict[int, float]) -> dict:
-    """Kassa, positionsvärde, totalt värde och vinst/förlust mot startkapitalet."""
-    acct = get_account(con)
-    trades = list_trades(con)
+def account_summary(
+    con: duckdb.DuckDBPyConnection, owner: str, latest_prices: dict[int, float],
+) -> dict:
+    """Kassa, positionsvärde, totalt värde och vinst/förlust mot startkapitalet
+    för EN ägares konto."""
+    acct = get_account(con, owner)
+    trades = list_trades(con, owner)
     pos = compute_positions(trades)
 
     cash = acct["starting_capital"]

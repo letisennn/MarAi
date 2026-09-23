@@ -37,13 +37,21 @@ def _reset_db() -> None:
     log.info("reset: removed %s", p)
 
 
-def run_all(source: str = "synthetic", reset: bool = False, attention_source: str = "synthetic") -> dict:
+def run_all(
+    source: str = "synthetic", reset: bool = False, attention_source: str = "synthetic",
+    since_days: int | None = None,
+) -> dict:
+    """``attention_source``: synthetic | real | keep (rör inte attention-datan — för daglig
+    uppdatering, eftersom riktig Trends/nyheter är långsam och rate-limitad).
+    ``since_days``: hämta bara de senaste N dagarna kurser i stället för hela historiken."""
     if reset:
         _reset_db()
 
     ucfg = universe_config()
     ingest_start = (pd.Timestamp(ucfg["study_start"]) - pd.DateOffset(years=2)).date()
     ingest_end = dt.date.today()
+    if since_days is not None:
+        ingest_start = ingest_end - dt.timedelta(days=int(since_days))
 
     with session(read_only=False) as con:
         run_migrations(con)
@@ -76,6 +84,8 @@ def run_all(source: str = "synthetic", reset: bool = False, attention_source: st
             forum_batch = SyntheticAttentionSource().fetch_attention(secs, ingest_start, ingest_end)
             forum_batch.rows = forum_batch.rows[forum_batch.rows["channel"] == "forum"]
             attn["forum_synthetic"] = write_attention_batch(con, forum_batch)
+        elif attention_source == "keep":
+            attn = {"skipped": "attention-datan orörd"}
         else:
             attn_batch = SyntheticAttentionSource().fetch_attention(secs, ingest_start, ingest_end)
             attn = write_attention_batch(con, attn_batch)

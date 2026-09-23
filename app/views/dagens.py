@@ -13,6 +13,7 @@ from _data import (
     security_list,
     verdict,
 )
+from _guide import dagens_guide
 
 st.title("🌅 Dagens upptäckter")
 d = latest_obs_date()
@@ -24,6 +25,8 @@ st.info(
     "alla och ger inget informationsövertag. Det här letar läget FÖRE, inte efter.",
     icon="🧪",
 )
+
+dagens_guide()
 
 seg = st.radio("Urval", ["Bara small", "Alla"], horizontal=True)
 picks = daily_discoveries(n=8, segment="small" if seg == "Bara small" else "alla")
@@ -48,9 +51,19 @@ for i, row in picks.iterrows():
         mv = row["Volym mot normalt"]
         m3.metric("Volym mot normalt", f"{mv * 100:+.0f}%" if pd.notna(mv) else "—")
 
+        meta_bits = []
+        if vd.get("as_of") is not None:
+            meta_bits.append(f"📅 Utfärdad {pd.Timestamp(vd['as_of']):%Y-%m-%d}")
+        if vd.get("horisont"):
+            meta_bits.append(f"⏱ Tidshorisont {vd['horisont']}")
+        if meta_bits:
+            st.caption("  ·  ".join(meta_bits))
+
         st.markdown(f"**Varför är detta intressant?** {vd['slutsats']}")
         if vd["darfor"]:
             st.markdown("\n".join(f"- {x}" for x in vd["darfor"][:3]))
+        if vd.get("ogiltigt_om"):
+            st.caption(f"🚫 **Ogiltigt om:** {vd['ogiltigt_om']}")
 
         a = analogues(sid, k=40)
         if a.get("n_analogues", 0) >= 10:

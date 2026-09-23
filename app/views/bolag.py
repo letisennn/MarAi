@@ -6,24 +6,29 @@ import pandas as pd
 import streamlit as st
 
 from _data import all_scores, all_setup_scores, latest_obs_date, screener
+from _guide import alla_bolag_guide
 
 st.title("📋 Alla bolag")
+alla_bolag_guide()
 
 d = latest_obs_date()
 st.caption(
-    f"Alla bolag i databasen, med de senaste mätningarna (panelen slutar {d:%Y-%m-%d}). "
-    "**Klicka på en rad för att öppna hela genomgången.** \"Uppbyggnad\" letar läget "
-    "FÖRE en rörelse (huvudrankning); \"Discovery\" mäter hur starkt bolaget rör sig "
-    "**just nu** — ett högt Discovery-värde utan Uppbyggnad betyder ofta att uppgången "
-    "redan syns för alla. Båda är **preliminära**, ovaliderade poäng. Segment: "
-    "*small* = genuina småbolag (huvudfokus), *mid* = har vuxit förbi taket men "
-    "behålls. Klicka på en kolumnrubrik för att sortera."
+    f"Alla bolag i databasen, senast mätt {d:%Y-%m-%d}. **Klicka på en rad för att öppna "
+    "hela genomgången.** Sorterat på **Bedömning** — Noels färdiga tolkning av läget, "
+    "inte bara ett högt eller lågt tal. Klicka en kolumnrubrik för att sortera om."
 )
 
-weeks = st.slider(
-    "\"Mönster som lyst\"-kolumnen räknar de senaste … veckorna",
-    min_value=1, max_value=26, value=8,
+weeks = 8
+show_advanced = st.toggle(
+    "Visa alla mått (avancerat)",
+    help="Rådata bakom Bedömning: Discovery-referens, kursutveckling, handel, "
+    "mönsterträffar. Av som standard — Bedömning-kolumnen sammanfattar redan det viktiga.",
 )
+if show_advanced:
+    weeks = st.slider(
+        "\"Mönster som lyst\"-kolumnen räknar de senaste … veckorna",
+        min_value=1, max_value=26, value=8,
+    )
 df = screener(weeks=weeks)
 
 seg = st.radio(
@@ -70,16 +75,31 @@ view = (
 # handel som procent mot normalt: 1.8 -> "+80 %", 0.6 -> "-40 %"
 handel_pct = ((view["rvol_5_60"] - 1.0) * 100)
 
+_BAND_EMOJI = {
+    "Inget setup": "⚪", "Bevaka": "🔎", "Tidigt setup": "🌱",
+    "Starkt setup": "📈", "Mycket starkt setup": "🔥",
+}
+
+
+def _bedomning(band, visible) -> str:
+    if bool(visible):
+        return "⚠️ Redan synligt"
+    b = band if isinstance(band, str) else "–"
+    return f"{_BAND_EMOJI.get(b, '')} {b}".strip()
+
+
 show = pd.DataFrame(
     {
         "Bolag": view["name"].values,
+        "Bedömning": [
+            _bedomning(b, v) for b, v in zip(view["setup_band"], view["already_visible"], strict=False)
+        ],
         "Uppbyggnad": view["setup_score"].values,
-        "Redan synligt": view["already_visible"].map({True: "⚠️ Ja", False: ""}).fillna("").values,
-        "Discovery": view["score"].values,
-        "Bedömning": view["band"].fillna("–").values,
         "Sektor": view["sector"].values,
         "Land": view["country"].values,
         "Börsvärde (MSEK)": (view["market_cap_sek"] / 1e6).values,
+        "Senaste signal": pd.to_datetime(view["last_signal"]).values,
+        "Discovery (referens)": view["score"].values,
         "Segment": view["segment"].fillna("—").values,
         "Status": view["status_sv"].values,
         "Kurs 3 mån (%)": (view["ret_3m"] * 100).values,
@@ -87,32 +107,42 @@ show = pd.DataFrame(
         "Handel mot normalt (%)": handel_pct.values,
         "Från årshögsta (%)": (view["dist_52w_high"] * 100).values,
         "Mönster som lyst": view["n_rules"].astype(int).values,
-        "Senaste signal": pd.to_datetime(view["last_signal"]).values,
     }
 )
 
+base_cols = ["Bolag", "Bedömning", "Uppbyggnad", "Sektor", "Land", "Börsvärde (MSEK)", "Senaste signal"]
+adv_cols = ["Discovery (referens)", "Segment", "Status", "Kurs 3 mån (%)", "Kurs 1 år (%)",
+            "Handel mot normalt (%)", "Från årshögsta (%)", "Mönster som lyst"]
+cols = base_cols + adv_cols if show_advanced else base_cols
+
 st.caption(f"{len(show)} bolag.")
 event = st.dataframe(
-    show,
+    show[cols],
     hide_index=True,
     width="stretch",
     height=560,
     on_select="rerun",
     selection_mode="single-row",
     column_config={
+        "Bedömning": st.column_config.TextColumn(
+            help="Noels färdiga tolkning: Uppbyggnadspoängets band, eller att bolaget redan "
+                 "är synligt för alla (nära årshögsta, stor uppgång bakom sig — inget övertag).",
+        ),
         "Uppbyggnad": st.column_config.ProgressColumn(
             format="%.0f", min_value=0, max_value=100,
             help="Letar läget FÖRE en rörelse — huvudrankning. Experimentell, ovaliderad.",
         ),
-        "Redan synligt": st.column_config.TextColumn(
-            "⚠️", help="Redan nära årshögsta med stor uppgång bakom sig — inget övertag att peka på det.",
+        "Börsvärde (MSEK)": st.column_config.NumberColumn(format="%.0f"),
+        "Senaste signal": st.column_config.DateColumn(
+            format="YYYY-MM-DD",
+            help="Datum ett förregistrerat mönster senast lyste. Tidshorisont varierar per "
+                 "mönster (inte samma tal för alla) — se Bolag i detalj.",
         ),
-        "Discovery": st.column_config.ProgressColumn(
+        "Discovery (referens)": st.column_config.ProgressColumn(
             format="%.0f", min_value=0, max_value=100,
             help="Hur starkt bolaget rör sig JUST NU (referens) — momentum, läge mot årshögsta, handel, mönster. "
                  "Experimentell, ovaliderad.",
         ),
-        "Börsvärde (MSEK)": st.column_config.NumberColumn(format="%.0f"),
         "Kurs 3 mån (%)": st.column_config.NumberColumn(
             format="%+.0f", help="Kursförändring senaste 3 månaderna, i procentenheter"
         ),
@@ -126,7 +156,6 @@ event = st.dataframe(
         "Mönster som lyst": st.column_config.NumberColumn(
             help=f"Antal förregistrerade mönster som lyst de senaste {weeks} veckorna"
         ),
-        "Senaste signal": st.column_config.DateColumn(format="YYYY-MM-DD"),
     },
 )
 

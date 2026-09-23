@@ -179,6 +179,78 @@ def _calm_phrase(r1m: float | None, r3m: float | None) -> str:
     return txt
 
 
+def compute_setup_score_panel(wide: pd.DataFrame, exclude_already_visible: bool = False) -> pd.Series:
+    """Vektoriserad Uppbyggnadspoäng över hela panelen (en rad per bolag×vecka)
+    — exakt samma formel/vikter/spärr som ``assess_setup`` (config/setup_score.yml),
+    bara snabb nog att köra på hela historiken istället för en UI-rad i taget.
+
+    Byggd 2026-09-19 (Jonas: "bygg den så den har en edge") för att kunna svepa
+    Uppbyggnadspoängen genom E1:s riktiga statistik (veckovis tvärsnitts-rank-IC,
+    kvintilspridning, kronologisk discovery/holdout-split) — samma rigorösa
+    metod som alla andra features, inte en särbehandling. Point-in-time:
+    percentilrankningen är alltid mot samma veckas tvärsnitt.
+
+    ``exclude_already_visible=True`` sätter NaN (inte cap) på redan-synligt-
+    spärrade rader istället för att capa dem — svarar på "är edgen i botten
+    bara spärren som gör sitt jobb, eller finns den även bland de OSPÄRRADE
+    bolagen?" (Jonas, 2026-09-19, uppföljning på det första E1-svepet).
+    """
+    cfg = setup_score_config()
+    w = cfg["weights"]
+    df = wide[["obs_date"]].copy()
+
+    def rank_pct(col: str, ascending: bool = True) -> pd.Series:
+        if col not in wide.columns:
+            return pd.Series(np.nan, index=wide.index)
+        return wide.groupby("obs_date")[col].rank(pct=True, ascending=ascending) * 100.0
+
+    volym = pd.concat([rank_pct("rvol_5_60"), rank_pct("vol_accel")], axis=1).mean(axis=1)
+    attn = pd.concat([rank_pct("search_accel"), rank_pct("forum_accel")], axis=1).mean(axis=1)
+
+    df["_abs_r1"] = wide["ret_1m"].abs() if "ret_1m" in wide else np.nan
+    df["_abs_r3"] = wide["ret_3m"].abs() if "ret_3m" in wide else np.nan
+    lugn = pd.concat(
+        [
+            df.groupby("obs_date")["_abs_r1"].rank(pct=True, ascending=False) * 100.0,
+            df.groupby("obs_date")["_abs_r3"].rank(pct=True, ascending=False) * 100.0,
+        ],
+        axis=1,
+    ).mean(axis=1)
+
+    dist = wide["dist_52w_high"] if "dist_52w_high" in wide else pd.Series(np.nan, index=wide.index)
+    d = (-dist.clip(upper=0.0)).fillna(np.nan)
+    peak = cfg["coiled_zone"]["peak_distance"]
+    zero_beyond = cfg["coiled_zone"]["zero_beyond_distance"]
+    span = zero_beyond - peak
+    coiled = pd.Series(0.0, index=wide.index)
+    near = d <= peak
+    mid = (d > peak) & (d <= zero_beyond)
+    coiled[near] = (d[near] / peak).clip(lower=0) * 100.0 if peak else 0.0
+    coiled[mid] = (((zero_beyond - d[mid]) / span).clip(lower=0) * 100.0) if span else 0.0
+    coiled[dist.isna()] = np.nan
+
+    comps = {
+        "volym_uppbyggnad": volym.fillna(50.0),
+        "uppmarksamhet": attn.fillna(50.0),
+        "lugn_kurs": lugn.fillna(50.0),
+        "coiled_zon": coiled.fillna(50.0),
+    }
+    wsum = sum(w.values())
+    total = sum(comps[k] * w[k] for k in comps) / wsum
+
+    gate = cfg["already_visible_gate"]
+    r3m = wide["ret_3m"] if "ret_3m" in wide else pd.Series(np.nan, index=wide.index)
+    already_visible = (dist >= gate["dist_52w_high_min"]) & (r3m >= gate["ret_3m_min"])
+    visible_mask = already_visible.fillna(False)
+
+    if exclude_already_visible:
+        total = total.where(~visible_mask)
+        return total.round(1).rename("setup_score_ungated")
+
+    total = total.where(~visible_mask, np.minimum(total, float(gate["capped_score"])))
+    return total.round(1).rename("setup_score")
+
+
 def _zone_phrase(dist: float | None) -> str:
     if dist is None:
         return "okänt läge mot årshögsta"

@@ -20,6 +20,28 @@ log = get_logger(__name__)
 _KIND = {"acquired": "acquisition", "bankrupt": "bankruptcy", "delisted": "delisting"}
 
 
+def _trading_calendar(con: duckdb.DuckDBPyConnection, min_coverage: float = 0.5) -> pd.DatetimeIndex:
+    """Datum där minst ``min_coverage`` av alla bolag i ``price_clean`` har en
+    kursrad — inte bara unionen av alla datum.
+
+    Utan tröskeln kapar en enda avvikande ticker (t.ex. en dubbelnotering med
+    en enstaka rad en dag ingen annan har) hela veckans observation för ALLA
+    bolag: ``_observation_dates`` snappar till den senaste dagen i kalendern,
+    så en ensam rad på en dag längre fram flyttar snappunkten dit — och nästan
+    inget bolag har en rad exakt där (2026-09-19, Jonas: ShaMaran Petroleum
+    ensam på en dag höll tillbaka hela panelen en hel vecka).
+    """
+    rows = con.execute(
+        """
+        SELECT session_date FROM price_clean
+        GROUP BY session_date
+        HAVING count(DISTINCT security_id) >= ? * (SELECT count(DISTINCT security_id) FROM price_clean)
+        """,
+        [min_coverage],
+    ).fetchall()
+    return pd.DatetimeIndex(pd.to_datetime([r[0] for r in rows])).sort_values()
+
+
 def _observation_dates(calendar: pd.DatetimeIndex, start: pd.Timestamp, end: pd.Timestamp) -> list[pd.Timestamp]:
     fridays = pd.date_range(start, end, freq="W-FRI")
     cal = calendar.sort_values()
@@ -153,11 +175,7 @@ def build_panel(con: duckdb.DuckDBPyConnection) -> dict:
     end = pd.Timestamp(ucfg["study_end"]) if ucfg.get("study_end") else pd.Timestamp.today().normalize()
     tsv = targets_config()["target_set_version"]
 
-    cal = pd.DatetimeIndex(
-        pd.to_datetime(
-            [r[0] for r in con.execute("SELECT DISTINCT session_date FROM price_clean").fetchall()]
-        )
-    ).sort_values()
+    cal = _trading_calendar(con)
     if len(cal) == 0:
         raise RuntimeError("price_clean empty — run ingestion + cleaning first")
     obs_dates = _observation_dates(cal, start, end)
