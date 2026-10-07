@@ -210,3 +210,99 @@ def test_old_file_without_snapshot_column_is_migrated_in_place(isolated_paper_db
         t = paper.list_trades(con, "jonas")
     assert len(t) == 1
     assert pd.isna(t.iloc[0]["snapshot"])
+
+
+# --- Postgres-omslaget (2026-10-08: hostade miljöer utan beständig disk, t.ex.
+# Replit Deployments, pratar Postgres istället för en lokal DuckDB-fil via
+# DATABASE_URL — se marc/paper/__init__.py). Ingen riktig Postgres-server
+# tillgänglig i den här testmiljön, så vi testar omslagsklasserna mot en
+# stub-cursor som efterliknar psycopg2:s gränssnitt, för att fånga fel i
+# platshållar-översättningen (?)->(%s) och DataFrame-bygget.
+class _StubCursor:
+    def __init__(self, rows, description) -> None:
+        self._rows = rows
+        self.description = description
+        self.sql = None
+        self.params = None
+
+    def execute(self, sql, params=None) -> None:
+        self.sql = sql
+        self.params = params
+
+    def fetchone(self):
+        return self._rows[0] if self._rows else None
+
+    def fetchall(self):
+        return self._rows
+
+
+class _StubPgConnection:
+    def __init__(self, cursor: _StubCursor) -> None:
+        self._cursor = cursor
+        self.autocommit = False
+
+    def cursor(self):
+        return self._cursor
+
+
+def test_pgconn_translates_placeholders_and_passes_params() -> None:
+    cur = _StubCursor(rows=[], description=[])
+    raw = _StubPgConnection(cur)
+    con = paper._PgConn(raw)
+
+    con.execute("SELECT * FROM trade WHERE owner = ? AND trade_id = ?", ["jonas", 7])
+
+    assert cur.sql == "SELECT * FROM trade WHERE owner = %s AND trade_id = %s"
+    assert cur.params == ["jonas", 7]
+
+
+def test_pgresult_fetchone_and_fetchall_pass_through() -> None:
+    cur = _StubCursor(rows=[(1, "a"), (2, "b")], description=[("id",), ("name",)])
+    result = paper._PgResult(cur)
+
+    assert result.fetchone() == (1, "a")
+    assert result.fetchall() == [(1, "a"), (2, "b")]
+
+
+def test_pgresult_df_builds_dataframe_with_column_names() -> None:
+    cur = _StubCursor(
+        rows=[(1, "jonas", 5.0), (2, "hugo", 3.0)],
+        description=[("trade_id",), ("owner",), ("shares",)],
+    )
+    df = paper._PgResult(cur).df()
+
+    assert list(df.columns) == ["trade_id", "owner", "shares"]
+    assert df.iloc[0]["owner"] == "jonas"
+    assert df.iloc[1]["shares"] == 3.0
+
+
+def test_pgresult_df_empty_when_no_description() -> None:
+    cur = _StubCursor(rows=[], description=None)
+    df = paper._PgResult(cur).df()
+    assert df.empty
+    assert list(df.columns) == []
+
+
+def test_session_uses_postgres_when_database_url_set(monkeypatch) -> None:
+    """DATABASE_URL satt -> session() ska be psycopg2 koppla upp, aldrig röra
+    en lokal fil. Vi stubbar ``_connect_postgres`` istället för att kräva en
+    riktig server — syftet är att bekräfta VILKEN gren som väljs, inte att
+    testa psycopg2 självt."""
+    calls = []
+
+    class _FakeConn:
+        def execute(self, sql, params=None):
+            calls.append(sql)
+            return paper._PgResult(_StubCursor(rows=[], description=[]))
+
+        def close(self):
+            calls.append("CLOSE")
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://stub/db")
+    monkeypatch.setattr(paper, "_connect_postgres", lambda dsn: _FakeConn())
+
+    with paper.session() as con:
+        assert isinstance(con, _FakeConn)
+
+    assert "CLOSE" in calls
+    assert any("CREATE TABLE IF NOT EXISTS account" in c for c in calls)

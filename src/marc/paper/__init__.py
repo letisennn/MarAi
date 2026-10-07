@@ -11,18 +11,29 @@ skriver bara till användarens egen leklåda, aldrig till forskningsdata.
 Snittkostnadsmetod (average cost): varje sälj realiserar vinst/förlust mot
 positionens löpande snittkostnad; ingen FIFO/LIFO-bokföring. Enkelt och
 tillräckligt för en pappersportfölj.
-"""
+
+**Postgres-läge (2026-10-08, Jonas ville publicera utan egen server/kort).**
+Vissa hostade miljöer (t.ex. Replits "Deployments") har INGEN beständig disk —
+en lokal fil nollställs vid omdeploy, vilket hade raderat portföljerna. Om
+miljövariabeln ``DATABASE_URL`` är satt pratar modulen istället med en riktig
+Postgres-databas (t.ex. Replits inbyggda) via ``_PgConn`` nedan — en tunn
+omslagsklass som efterliknar DuckDBs ``.execute(...).fetchone()/.fetchall()/
+.df()``-API, så att alla funktioner nedan är identiska oavsett backend. Lokalt
+(ingen ``DATABASE_URL``) är beteendet exakt som innan: samma DuckDB-fil."""
 
 from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 from contextlib import contextmanager
 
 import duckdb
 import pandas as pd
 
-from marc.config import get_settings
+from marc.config import get_logger, get_settings
+
+log = get_logger(__name__)
 
 DEFAULT_STARTING_CAPITAL = 100_000.0
 
@@ -32,10 +43,13 @@ DEFAULT_STARTING_CAPITAL = 100_000.0
 OWNERS = ("jonas", "hugo")
 DEFAULT_OWNER = "jonas"
 
+# DOUBLE PRECISION (inte DuckDBs kortform DOUBLE) — DuckDB accepterar båda,
+# riktig Postgres kräver långformen. Resten av schemat (SEQUENCE, nextval,
+# ADD COLUMN IF NOT EXISTS, CHECK, now()) är identisk SQL i båda motorerna.
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS account (
     account_id INTEGER PRIMARY KEY,
-    starting_capital_sek DOUBLE NOT NULL,
+    starting_capital_sek DOUBLE PRECISION NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT now()
 );
 CREATE SEQUENCE IF NOT EXISTS trade_id_seq START 1;
@@ -43,8 +57,8 @@ CREATE TABLE IF NOT EXISTS trade (
     trade_id BIGINT PRIMARY KEY DEFAULT nextval('trade_id_seq'),
     security_id BIGINT NOT NULL,
     side TEXT NOT NULL CHECK (side IN ('buy','sell')),
-    shares DOUBLE NOT NULL CHECK (shares > 0),
-    price_sek DOUBLE NOT NULL CHECK (price_sek > 0),
+    shares DOUBLE PRECISION NOT NULL CHECK (shares > 0),
+    price_sek DOUBLE PRECISION NOT NULL CHECK (price_sek > 0),
     trade_date DATE NOT NULL,
     note TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT now()
@@ -61,13 +75,67 @@ CREATE SEQUENCE IF NOT EXISTS account_id_seq START 2;
 """
 
 
+class _PgResult:
+    """Efterliknar DuckDBs resultatobjekt (.fetchone/.fetchall/.df) ovanpå en
+    psycopg2-cursor, så anroparen inte behöver bry sig om vilken backend som
+    används."""
+
+    def __init__(self, cur) -> None:
+        self._cur = cur
+
+    def fetchone(self):
+        return self._cur.fetchone()
+
+    def fetchall(self):
+        return self._cur.fetchall()
+
+    def df(self) -> pd.DataFrame:
+        cols = [d[0] for d in self._cur.description] if self._cur.description else []
+        return pd.DataFrame(self._cur.fetchall(), columns=cols)
+
+
+class _PgConn:
+    """Tunn omslagsklass runt en psycopg2-anslutning med samma ytliga API som
+    en duckdb-anslutning (``.execute(sql, params).fetchone()/.df()``), så att
+    ingen av funktionerna nedanför i filen behöver veta vilken backend som
+    används. DuckDBs ``?``-platshållare skrivs om till psycopg2:s ``%s``."""
+
+    def __init__(self, raw) -> None:
+        self._raw = raw
+
+    def execute(self, sql: str, params=None) -> _PgResult:
+        cur = self._raw.cursor()
+        cur.execute(sql.replace("?", "%s"), params or None)
+        return _PgResult(cur)
+
+    def close(self) -> None:
+        self._raw.close()
+
+
+def _connect_postgres(dsn: str) -> _PgConn:
+    import psycopg2  # lokal import: bara ett krav när DATABASE_URL faktiskt är satt
+
+    raw = psycopg2.connect(dsn)
+    raw.autocommit = True  # matchar DuckDB-filens beteende: varje statement slår igenom direkt
+    return _PgConn(raw)
+
+
 @contextmanager
 def session():
     """Kort anslutning, öppnas och stängs per operation — ingen delad, cachad
-    skriv-anslutning som kan krocka med annat."""
-    path = get_settings().paper_db_path
-    path.parent.mkdir(parents=True, exist_ok=True)
-    con = duckdb.connect(str(path))
+    skriv-anslutning som kan krocka med annat.
+
+    Om ``DATABASE_URL`` är satt (t.ex. Replits inbyggda Postgres) används den
+    istället för en lokal fil — nödvändigt på hostade miljöer utan beständig
+    disk, där en DuckDB-fil annars skulle nollställas vid varje omdeploy."""
+    dsn = os.environ.get("DATABASE_URL")
+    if dsn:
+        con = _connect_postgres(dsn)
+        log.info("paper: ansluter mot Postgres (DATABASE_URL satt)")
+    else:
+        path = get_settings().paper_db_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        con = duckdb.connect(str(path))
     try:
         for stmt in _SCHEMA.strip().split(";"):
             if stmt.strip():

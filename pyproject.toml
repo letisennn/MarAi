@@ -26,6 +26,7 @@ dependencies = [
     "pytrends>=4.9.2",
     "anthropic>=1.6.0",
     "python-dotenv>=1.0",
+    "psycopg2-binary>=2.9",  # pappershandelns lager på hostad miljö utan skrivbar disk (se marc.paper), ex. Replit Deployments — se marc/paper/__init__.py
 ]
 
 [project.optional-dependencies]
